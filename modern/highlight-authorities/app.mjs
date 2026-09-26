@@ -16,7 +16,7 @@ function renderRows(){
  for(const record of records){
   const row=element('article',null,'record');row.dataset.id=record.id;
   const heading=element('div',null,'record-heading'),check=document.createElement('input');check.type='checkbox';check.checked=record.enabled;check.setAttribute('aria-label',`Include ${record.citation}`);check.disabled=busy;check.onchange=()=>record.enabled=check.checked;
-  const title=element('div',null,'record-title');title.append(element('strong',record.name),' ',element('span',record.citation,'citation'));heading.append(check,title);
+  const title=element('div',null,'record-title');const name=key(record.name)===key(record.citation)?'':record.name;if(name)title.append(element('strong',name),' ');title.append(element('span',record.citation,'citation'));heading.append(check,title);
   const targets=element('div',null,'targets');for(const target of record.targets){const found=record.document?.findings.find(f=>JSON.stringify(f.target)===JSON.stringify(target));const mark=record.document?.marks.find(m=>m.label===targetLabel(target));const b=action(targetLabel(target),()=>openRecord(record,mark?.id),!record.document);b.className='target'+(found&&found.status!=='found'?' unresolved':'');targets.append(b);}
   const links=element('div',null,'row-actions');let pdfLink=canliiPdf(record.citation);if(!pdfLink)for(const c of record.aliases){pdfLink=canliiPdf(c);if(pdfLink)break;}
   if(pdfLink){const a=element('a','CanLII PDF ↗','ext-link');a.title='Open on CanLII (new tab)';a.href=pdfLink;a.target='_blank';a.rel='noopener noreferrer';links.append(a);}

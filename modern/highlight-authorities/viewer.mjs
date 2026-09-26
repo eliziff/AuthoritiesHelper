@@ -1,6 +1,6 @@
 import { TextLayer } from 'pdfjs-dist/build/pdf.mjs';
 import { openPdf } from './pdf.mjs';
-import { targetLabel } from './domain.mjs';
+import { targetLabel, key } from './domain.mjs';
 
 // A soft, translucent default that tints the passage without burying the text beneath it.
 export const DEFAULT_RGB = [1, .93, .45], DEFAULT_OPACITY = .3;
@@ -166,7 +166,7 @@ export function makeViewer(root, onChange) {
   $('close-viewer').onclick=async()=>{teardown();root.hidden=true;if(pdf)await pdf.destroy();pdf=null;};
   return { async open(value,markId){
     teardown();if(pdf)await pdf.destroy();record=value;pdf=null;selectedId=null;styling=false;const run=epoch;
-    root.hidden=false;$('viewer-title').textContent=record.name;$('viewer-citation').textContent=record.citation;$('page-scroll').scrollTop=0;
+    root.hidden=false;{const same=key(record.name)===key(record.citation);$('viewer-title').textContent=same?record.citation:record.name;$('viewer-citation').textContent=same?'':record.citation;}$('page-scroll').scrollTop=0;
     const doc=await openPdf(record.document.data);if(run!==epoch){doc.destroy();return;}pdf=doc;
     const sizes=[];for(let i=1;i<=pdf.numPages;i++){const page=await pdf.getPage(i);if(run!==epoch)return;const v=page.getViewport({scale:1});sizes.push({width:v.width,height:v.height});}
     $('page-number').max=String(pdf.numPages);$('page-number').value='1';$('page-count').textContent=`of ${pdf.numPages}`;
