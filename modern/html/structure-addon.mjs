@@ -25,7 +25,7 @@ const SIGNATURES = {
   readDocumentTextWindow: ["document", "offset", "startChar", "limit"],
   readDocumentTextRange: ["document", "start", "end", "offset", "limit"],
   documentFingerprint: ["document"], documentAnchors: ["document", "end"],
-  legalSourceViewer: ["document", "primaryKind", "limit"], documentTableCells: ["document"],
+  legalSourceViewer: ["document", "primaryKind", "limit"], documentTableCells: ["document"], textLayout: ["text"],
   citationLookupKey: ["text"], citationLookupKeys: ["texts"], providerCitationsInText: ["text"],
   citationOccurrencesInText: ["text"], authorityReferencesInText: ["text"],
   caselawCitationLookupKey: ["text"], hasCitationInText: ["text"],
