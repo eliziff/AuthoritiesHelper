@@ -80,20 +80,33 @@ $('drop').onclick=()=>{activeRecord=null;$('pdf-files').click();};$('drop').ondr
 window.addEventListener('dragover',e=>e.preventDefault());window.addEventListener('drop',e=>e.preventDefault());
 $('download-all').onclick=async()=>{setBusy(true);try{const files=[];for(const r of records.filter(r=>r.enabled&&r.document)){notice(`Preparing ${r.citation}`);files.push({name:filename(r),data:await exportPdf(r.document)});}download(makeZip(files),'Highlighted-authorities.zip');notice('');}catch(error){notice(error.message);}finally{setBusy(false);}};
 $('viewer-download').onclick=()=>activeRecord&&saveRecord(activeRecord).catch(e=>notice(e.message));
-// Browsers never let a page read Downloads by itself, so the user picks the folder and the app takes only recent CanLII-named PDFs.
-// Auto-fetch from folder: a real folder picker (showDirectoryPicker in Chrome/Edge), <input webkitdirectory> only where that API is missing.
+// Auto-fetch from folder: the user picks the folder once (showDirectoryPicker in Chrome/Edge) and the app keeps watching it,
+// adding each recent CanLII-named PDF as it lands until the tab closes or the button is clicked again.
+// Browsers without that API get a one-time <input webkitdirectory> read.
+const WATCH_INTERVAL=2000,fetchLabel=$('fetch-downloads').textContent;let watched=null,watchTimer=null,scanning=false;const seen=new Set();
+function stopWatching(message){clearInterval(watchTimer);watchTimer=null;watched=null;$('fetch-downloads').textContent=fetchLabel;$('fetch-downloads').classList.remove('watching');if(message)notice(message);}
+async function scanWatched(first=false){
+ if(!watched||scanning||busy)return;scanning=true;
+ try{
+  if(await watched.queryPermission?.({mode:'read'})==='denied')return stopWatching(`Stopped watching ${watched.name}: access was withdrawn.`);
+  const files=[];for await(const entry of watched.values())if(entry.kind==='file'&&/\.pdf$/i.test(entry.name))try{const file=await entry.getFile(),id=`${file.name}|${file.size}|${file.lastModified}`;if(!seen.has(id)){seen.add(id);files.push(file);}}catch{}
+  if(files.length||first)await addFromFolder(files,!first);
+ }catch(error){stopWatching(`Stopped watching the folder: ${error.message}`);}
+ finally{scanning=false;}
+}
 $('fetch-downloads').onclick=async()=>{if(busy)return;
+ if(watched)return stopWatching('Stopped watching the folder.');
  if(typeof window.showDirectoryPicker!=='function')return $('downloads-folder').click();
  let dir;try{dir=await window.showDirectoryPicker({id:'authorities-downloads',mode:'read',startIn:'downloads'});}catch(error){if(error?.name!=='AbortError')notice(`Could not open that folder: ${error.message}`);return;}
- const files=[];for await(const entry of dir.values())if(entry.kind==='file'&&/\.pdf$/i.test(entry.name))try{files.push(await entry.getFile());}catch{}
- await addFromFolder(files);};
+ watched=dir;seen.clear();$('fetch-downloads').textContent=`Watching ${dir.name} · Stop`;$('fetch-downloads').classList.add('watching');
+ await scanWatched(true);if(watched===dir){watchTimer=setInterval(scanWatched,WATCH_INTERVAL);if(!$('notice').textContent)notice(`Watching ${dir.name}: CanLII PDFs saved there are added automatically.`);}};
 $('downloads-folder').onchange=async()=>{const files=Array.from($('downloads-folder').files);$('downloads-folder').value='';await addFromFolder(files);};
-async function addFromFolder(files){const picks=pickDownloads(files,records),picked=new Set(picks.map(p=>p.file));
+async function addFromFolder(files,quiet=false){const picks=pickDownloads(files,records),picked=new Set(picks.map(p=>p.file));
  // Recent CanLII PDFs with no listed authority to bind to become their own entries, citation taken from the filename; bind() still runs the first-page citation check.
  const extras=[];for(const {citation,file} of recentCanliiFiles(files)){if(picked.has(file)||records.some(r=>r.aliases.some(c=>key(c)===key(citation))))continue;
   let r;try{r=parseInstructions(citation,engine)[0];}catch{}if(r&&!records.some(a=>a.id===r.id)){records.push(r);extras.push({record:r,file});}}
  if(extras.length)renderRows();const all=[...picks,...extras];
- if(!all.length)return notice('No PDF downloaded in the last day is named like a CanLII citation (e.g. 2019abqb666.pdf)'+(records.some(r=>!r.document)?' for a missing authority.':'.'));
+ if(!all.length)return quiet?undefined:notice('No PDF downloaded in the last day is named like a CanLII citation (e.g. 2019abqb666.pdf)'+(records.some(r=>!r.document)?' for a missing authority.':'.'));
  for(const {record,file} of all)await upload([file],record);
  for(const {record} of extras)if(!record.document)records.splice(records.indexOf(record),1);if(extras.length)renderRows();
  const added=all.filter(p=>p.record.document).length,missing=records.filter(r=>!r.document).length;
