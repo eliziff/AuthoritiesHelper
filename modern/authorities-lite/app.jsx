@@ -146,7 +146,7 @@ function ViewerShell(){
  const tool='inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-gray-300 bg-white px-2.5 text-xs font-medium text-gray-800 outline-none hover:bg-gray-50 focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-4';
  return <section id="viewer" hidden aria-label="PDF highlight review" className="fixed inset-0 z-10 flex flex-col bg-app-background">
   <div className="flex min-h-14 items-center gap-3 border-b border-gray-200 bg-white px-4 py-2 sm:px-6">
-   <button id="close-viewer" type="button" className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md px-2 text-sm font-medium text-gray-700 outline-none hover:bg-gray-100 focus-visible:ring-3 focus-visible:ring-ring/50"><ArrowLeft className="size-4" aria-hidden="true"/><span className="hidden sm:inline">Authorities</span></button>
+   <button id="close-viewer" type="button" className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md px-2 text-sm font-medium text-gray-700 outline-none hover:bg-gray-100 focus-visible:ring-3 focus-visible:ring-ring/50"><ArrowLeft className="size-4" aria-hidden="true"/><span className="hidden sm:inline">Authorities-lite</span></button>
    <div className="min-w-0 flex-1"><h2 id="viewer-title" className="truncate text-lg font-medium leading-tight text-gray-900"></h2><p id="viewer-citation" className="truncate text-sm text-gray-600"></p></div>
    <label className="hidden items-center gap-1.5 whitespace-nowrap text-sm text-gray-600 md:flex">Page<input id="page-number" type="number" min="1" defaultValue="1" aria-label="Go to page" className="h-8 w-16 rounded-md border border-gray-300 bg-white px-2 text-right text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"/><span id="page-count"></span></label>
    <button id="viewer-download" type="button" className={cx(BUTTON,VARIANT.default,SIZE.default)}><Download/>Download PDF</button>
@@ -180,7 +180,7 @@ function App(){
  const ready=records.filter(r=>r.enabled&&r.document).length;
  return <div className="min-h-dvh bg-app-background">
   <header className="mx-auto flex min-h-14 w-full max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-2 sm:px-6 lg:pb-4 lg:pt-5.5">
-   <h1 className="truncate text-2xl font-medium leading-tight text-gray-900">Authorities</h1>
+   <h1 className="truncate text-2xl font-medium leading-tight text-gray-900">Authorities-lite</h1>
    <div className="flex flex-wrap items-center gap-2">
     <Button variant="outline" disabled={busy} onClick={fetchFromFolder} aria-pressed={!!watched}
      title={watched?'Stop watching this folder':'Choose a folder once; PDFs named like 2019abqb666.pdf that are saved there are added to their authorities as they arrive.'}

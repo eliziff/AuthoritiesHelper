@@ -2,8 +2,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "prepare:highlight": "node highlight-authorities/prepare.mjs",
-    "build:highlight": "node highlight-authorities/build.mjs"
+    "prepare:lite": "node authorities-lite/prepare.mjs",
+    "build:lite": "node authorities-lite/build.mjs"
   },
   "dependencies": {
     "lucide-react": "0.553.0",
