@@ -5,8 +5,12 @@ const read=p=>fs.readFileSync(path.join(root,p),'utf8'),write=(p,s)=>fs.writeFil
 write('vendor/pdf-annotations.mjs',read('vendor/beaver/shared/pdf-annotations.mjs'));
 let writer=read('vendor/beaver/backend/src/lib/authoritiesAnnotations.ts');const writerStart=writer.indexOf('export function writeAuthorityAnnotations');
 if(writerStart<0)throw new Error('Pinned Beaver annotation export is missing.');writer=writer.slice(writerStart);
+// Highlights carry no author or comment text: Beaver's writer copied the whole quote into /Contents under author "Beaver".
+const patchWriter=(from,to)=>{if(!writer.includes(from))throw new Error(`Pinned Beaver annotation writer changed: ${from}`);writer=writer.replace(from,to);};
+patchWriter(/const contents = [\s\S]*?`Cited passage — \$\{mark\.label\}`;\n/u.exec(writer)?.[0]??'\0','');
+patchWriter("T: pdf.PDFHexString.fromText('Beaver'), Contents: pdf.PDFHexString.fromText(contents.slice(0, 2_000)),\n","");
 writer=`import {decodeAnnotationSet,quadBounds,rectToPdfQuad} from './pdf-annotations.mjs';\n${writer}`;
-write('vendor/annotation-writer.mjs','// MIT. Unchanged pure annotation writer from Beaver; see SOURCES.json.\n'+(await transform(writer,{loader:'ts',format:'esm'})).code);
+write('vendor/annotation-writer.mjs','// MIT. Beaver annotation writer without author or comment text; see SOURCES.json.\n'+(await transform(writer,{loader:'ts',format:'esm'})).code);
 let publisher=read('vendor/beaver/backend/src/lib/legalSourcePresentation.ts').replace('import { normalizeWhitespace } from "./text";', 'const normalizeWhitespace = (value: string) => value.replace(/\\s+/gu, " ").trim();');
 publisher=publisher.replace('"coadecisions.ontariocourts.ca",','"coadecisions.ontariocourts.ca",\n  "decisions.courts.ns.ca",');
 // Live SCC/FC responses now use a div for the same exact documents representation control.
