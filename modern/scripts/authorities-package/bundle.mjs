@@ -16,7 +16,7 @@ const backendRequired = [
 ];
 // Pure validation (Zod) is part of the shared runtime contract, not a Beaver
 // deployment dependency. Keep its real validators and error types in this bundle.
-const backendForbidden = [
+export const backendForbidden = [
   /(?:^|\/)src\/(?:index|runtime|supervisor)\.ts$/u,
   /(?:^|\/)src\/middleware\/auth\.ts$/u,
   /(?:^|\/)src\/lib\/(?:jobQueue|relational(?:Database)?|supabase)\.ts$/u,
@@ -29,7 +29,7 @@ const frontendRequired = ["/src/authoritiesMain.tsx",
   "/src/app/authorities/AuthoritiesWorkspace.tsx",
   "/src/app/authorities/standaloneHost.ts",
   "/src/app/lib/standaloneWorkProducts.ts"];
-const frontendForbidden = [/\/src\/app\/authorities\/beaverHost\.ts$/u,
+export const frontendForbidden = [/\/src\/app\/authorities\/beaverHost\.ts$/u,
   /\/src\/app\/components\/assistant\//u,
   /\/src\/app\/lib\/(?:api\/(?!(?:client|mutationEvents)\.)[^/]+|supabase)\.[^/]+$/u,
   /\/node_modules\/(?:@anthropic-ai|@aws-sdk|@google\/genai|@supabase|openai)\//u];
