@@ -17,6 +17,13 @@ npm run package:authorities
 The package command writes `modern/out/Authorities-win-x64.zip`. Generated
 packages and runtimes are never committed.
 
+## Releases
+
+The Release workflow publishes two single-file packages: `Authorities.html`, the full
+Authorities app built from Beaver with [html/](html) (tags `authorities-v*`), and
+`Authorities-lite.html`, the separate lightweight app in
+[authorities-lite/](authorities-lite) (tags `authorities-lite-v*`).
+
 ## Self-contained HTML
 
 `Authorities.html` is the same workspace, runtime and Rust engine in one file

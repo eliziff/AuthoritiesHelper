@@ -1,22 +1,89 @@
-name: Release Authorities.html
+name: Release
 
-# Pushing a tag such as highlight-authorities-v0.2.0, or running this workflow with a version,
-# builds the standalone app from source and publishes a release whose only file is the
-# self-contained Authorities.html.
+# Two packages, each a single self-contained HTML file:
+# - Authorities.html, the full Authorities app: Beaver's workspace, runtime and Rust engine
+#   built with this commit's browser adapter (modern/html). Tag authorities-v*.
+# - Authorities-lite.html, the lightweight app in modern/authorities-lite. Tag authorities-lite-v*.
+# Pushing a tag releases that package; a manual run releases the one chosen, or both.
 on:
   push:
-    tags: ['highlight-authorities-v*']
+    tags: ['authorities-v*', 'authorities-lite-v*']
   workflow_dispatch:
     inputs:
+      package:
+        description: Package to release
+        type: choice
+        options: [both, authorities, authorities-lite]
+        default: both
       version:
-        description: Version to release, e.g. v0.2.0
+        description: Version to release, e.g. v0.3.0
         required: true
 
 permissions:
   contents: write
 
 jobs:
-  release:
+  authorities:
+    if: >-
+      (github.event_name == 'workflow_dispatch' && inputs.package != 'authorities-lite') ||
+      (github.event_name == 'push' && startsWith(github.ref_name, 'authorities-v'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Check out Beaver, its engine pins and this adapter
+        run: |
+          git init beaver && cd beaver
+          git remote add origin https://github.com/eliziff/Beaver.git
+          git fetch --depth=1 origin main
+          git checkout --detach FETCH_HEAD
+          for module in legal-structure legal-pdf-parser; do
+            url=$(git config -f .gitmodules submodule.$module.url)
+            sha=$(git ls-tree HEAD "$module" | awk '{print $3}')
+            git init "$module"
+            git -C "$module" remote add origin "$url"
+            git -C "$module" fetch --depth=1 origin "$sha"
+            git -C "$module" checkout --detach FETCH_HEAD
+          done
+          # The release is built with this commit of AuthoritiesHelper, not Beaver's pin.
+          git init AuthoritiesHelper
+          git -C AuthoritiesHelper remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
+          git -C AuthoritiesHelper fetch --depth=1 origin "$GITHUB_SHA"
+          git -C AuthoritiesHelper checkout --detach FETCH_HEAD
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install locked dependencies
+        working-directory: beaver
+        run: |
+          npm ci --ignore-scripts
+          npm ci --ignore-scripts --prefix backend
+          npm ci --ignore-scripts --prefix frontend
+          npm ci --ignore-scripts --prefix AuthoritiesHelper/modern
+      - name: Compile the engine for WebAssembly
+        working-directory: beaver
+        run: |
+          rustup target add wasm32-wasip1
+          cargo build --locked --release --target wasm32-wasip1 --manifest-path native/legal-structure-node/Cargo.toml
+      - name: Build Authorities.html
+        working-directory: beaver
+        env:
+          AUTHORITIES_RELAY_URL: ${{ vars.AUTHORITIES_RELAY_URL }}
+        run: node AuthoritiesHelper/modern/html/build.mjs "$GITHUB_WORKSPACE/Authorities.html"
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          version="${INPUT_VERSION:-${GITHUB_REF_NAME#authorities-}}"
+          gh release create "authorities-${version}" Authorities.html \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "Authorities ${version}" --latest \
+            --notes "The full Authorities app. Download Authorities.html and open it in Chrome or Edge; nothing to install."
+
+  authorities-lite:
+    if: >-
+      (github.event_name == 'workflow_dispatch' && inputs.package != 'authorities') ||
+      (github.event_name == 'push' && startsWith(github.ref_name, 'authorities-lite-v'))
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -30,22 +97,22 @@ jobs:
           cache-dependency-path: modern/package-lock.json
       - run: npm ci
       - name: Restore pinned inputs
-        run: node highlight-authorities/prepare.mjs
+        run: node authorities-lite/prepare.mjs
       - name: Compile the parser engine
         run: |
           rustup target add wasm32-unknown-unknown
-          cargo build --locked --release --target wasm32-unknown-unknown --manifest-path highlight-authorities/engine/Cargo.toml
-          mkdir -p highlight-authorities/vendor
-          cp highlight-authorities/engine/target/wasm32-unknown-unknown/release/authorities_browser_engine.wasm highlight-authorities/vendor/legal-structure.wasm
-      - name: Build Authorities.html
-        run: node highlight-authorities/build.mjs
+          cargo build --locked --release --target wasm32-unknown-unknown --manifest-path authorities-lite/engine/Cargo.toml
+          mkdir -p authorities-lite/vendor
+          cp authorities-lite/engine/target/wasm32-unknown-unknown/release/authorities_browser_engine.wasm authorities-lite/vendor/legal-structure.wasm
+      - name: Build Authorities-lite.html
+        run: node authorities-lite/build.mjs
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
           INPUT_VERSION: ${{ inputs.version }}
         run: |
-          version="${INPUT_VERSION:-${GITHUB_REF_NAME#highlight-authorities-}}"
-          gh release create "highlight-authorities-${version}" dist/highlight-authorities/Authorities.html \
+          version="${INPUT_VERSION:-${GITHUB_REF_NAME#authorities-lite-}}"
+          gh release create "authorities-lite-${version}" dist/authorities-lite/Authorities-lite.html \
             --target "$GITHUB_SHA" \
-            --title "Authorities ${version}" --latest \
-            --notes "Standalone Authorities app. Download Authorities.html and open it in Chrome or Edge; nothing to install."
+            --title "Authorities-lite ${version}" --latest=false \
+            --notes "Authorities-lite. Download Authorities-lite.html and open it in Chrome or Edge; nothing to install."

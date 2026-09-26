@@ -13,4 +13,4 @@ await unpack(runtime,path.join(vendor,'runtime'));
 for(const[repo,name,rev]of sources){await unpack(await get(`https://codeload.github.com/eliziff/${repo}/tar.gz/${rev}`),path.join(vendor,name),true);await fs.writeFile(path.join(vendor,`${name}-revision.txt`),rev+'\n');}
 await fs.writeFile(path.join(vendor,'beaver-revision.txt'),beaver+'\n');
 for(const file of ['backend/src/lib/legalSourcePresentation.ts','backend/src/lib/canliiUrls.ts','backend/src/lib/authoritiesAnnotations.ts','backend/src/lib/legalSources/a2aj.ts','backend/src/lib/providerPdfLibraryBridge.ts','shared/pdf-annotations.mjs']){const target=path.join(vendor,'beaver',file);await fs.mkdir(path.dirname(target),{recursive:true});await fs.writeFile(target,await get(`https://raw.githubusercontent.com/eliziff/Beaver/${beaver}/${file}`));}
-console.log('Pinned inputs restored. Compile highlight-authorities/engine, then run npm run build:highlight.');
+console.log('Pinned inputs restored. Compile authorities-lite/engine, then run npm run build:lite.');
