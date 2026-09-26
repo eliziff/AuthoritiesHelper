@@ -25,11 +25,18 @@ export async function fetch(input, init = {}) {
   if (!relay) throw new Error(`${url.hostname} can only be reached through the Authorities relay, ` +
     "which this copy is not configured with. Attach the PDF instead.");
   const headers = new Headers(rest.headers);
+  // The relay forwards text bodies; form parameters and bytes are sent as their text.
+  let body = rest.body ?? null;
+  if (body instanceof URLSearchParams) {
+    if (!headers.has("content-type")) headers.set("content-type", "application/x-www-form-urlencoded;charset=UTF-8");
+    body = body.toString();
+  } else if (body instanceof ArrayBuffer || ArrayBuffer.isView(body)) body = new TextDecoder().decode(body);
+  else if (body !== null && typeof body !== "string") throw new Error("The Authorities relay forwards text request bodies only.");
   const response = await globalThis.fetch(new URL("/relay", relay), {
     method: "POST", signal: rest.signal, credentials: "omit", referrerPolicy: "no-referrer",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ url: url.href, method: rest.method ?? "GET",
-      headers: Object.fromEntries(headers), body: typeof rest.body === "string" ? rest.body : null }),
+      headers: Object.fromEntries(headers), body }),
   });
   if (!response.ok) {
     const detail = await response.json().catch(() => null);

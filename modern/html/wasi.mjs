@@ -17,7 +17,7 @@ class WasiExit extends Error {
 }
 
 /** @param {import("node:fs")} fs a synchronous Node-style filesystem (memfs) */
-export function createWasi(fs, { stdout = console.log, stderr = console.error } = {}) {
+export function createWasi(fs, { stdout = console.log, stderr = console.error, env = {} } = {}) {
   let memory;
   const view = () => new DataView(memory.buffer);
   const bytes = () => new Uint8Array(memory.buffer);
@@ -28,6 +28,7 @@ export function createWasi(fs, { stdout = console.log, stderr = console.error } 
     [3, { kind: "dir", path: "/", preopen: "/" }],
   ]);
   let nextFd = 4;
+  const environ = Object.entries(env).map(([name, value]) => encoder.encode(`${name}=${value}\0`));
   const resolve = (fd, pointer, length) => {
     const base = fds.get(fd);
     if (base?.kind !== "dir") return null;
@@ -62,8 +63,18 @@ export function createWasi(fs, { stdout = console.log, stderr = console.error } 
   const imports = {
     args_get: () => ERRNO.SUCCESS,
     args_sizes_get: (count, size) => { view().setUint32(count, 0, true); view().setUint32(size, 0, true); return 0; },
-    environ_get: () => ERRNO.SUCCESS,
-    environ_sizes_get: (count, size) => { view().setUint32(count, 0, true); view().setUint32(size, 0, true); return 0; },
+    environ_get: (pointers, buffer) => {
+      for (const [index, entry] of environ.entries()) {
+        view().setUint32(pointers + index * 4, buffer, true);
+        bytes().set(entry, buffer); buffer += entry.length;
+      }
+      return ERRNO.SUCCESS;
+    },
+    environ_sizes_get: (count, size) => {
+      view().setUint32(count, environ.length, true);
+      view().setUint32(size, environ.reduce((total, entry) => total + entry.length, 0), true);
+      return ERRNO.SUCCESS;
+    },
     clock_time_get: (_id, _precision, pointer) => {
       view().setBigUint64(pointer, BigInt(Math.round((performance.timeOrigin + performance.now()) * 1e6)), true);
       return ERRNO.SUCCESS;
@@ -98,7 +109,17 @@ export function createWasi(fs, { stdout = console.log, stderr = console.error } 
       out.setBigUint64(pointer + 16, 0xffffffffffffffffn, true);
       return ERRNO.SUCCESS;
     },
-    fd_filestat_set_times: (fd) => fds.has(fd) ? ERRNO.SUCCESS : ERRNO.BADF,
+    // The parse cache touches what it reads so pruning drops the least recently used.
+    fd_filestat_set_times: (fd, atime, mtime, flags) => guard(() => {
+      const entry = fds.get(fd);
+      if (!entry) return ERRNO.BADF;
+      if (entry.kind !== "file") return;
+      const now = Date.now() / 1000, seconds = (time, set, setNow) =>
+        flags & setNow ? now : flags & set ? Number(time) / 1e9 : undefined;
+      const stat = fs.fstatSync(entry.handle);
+      fs.futimesSync(entry.handle, seconds(atime, 1, 2) ?? stat.atimeMs / 1000,
+        seconds(mtime, 4, 8) ?? stat.mtimeMs / 1000);
+    }),
     fd_sync: (fd) => fds.has(fd) ? ERRNO.SUCCESS : ERRNO.BADF,
     fd_close: (fd) => guard(() => {
       const entry = fds.get(fd);
@@ -108,7 +129,7 @@ export function createWasi(fs, { stdout = console.log, stderr = console.error } 
     }),
     fd_read: (fd, pointer, count, readPointer) => guard(() => {
       const entry = fds.get(fd);
-      if (entry?.kind !== "file") return entry ? ERRNO.BADF : ERRNO.BADF;
+      if (entry?.kind !== "file") return entry?.kind === "dir" ? ERRNO.ISDIR : ERRNO.BADF;
       let total = 0;
       for (const { buffer, length } of iovecs(pointer, count)) {
         const read = fs.readSync(entry.handle, bytes(), buffer, length, entry.position);
@@ -175,12 +196,14 @@ export function createWasi(fs, { stdout = console.log, stderr = console.error } 
       if (!target) return ERRNO.BADF;
       let stat = null;
       try { stat = fs.statSync(target); } catch (error) { if (error?.code !== "ENOENT") throw error; }
+      const write = (BigInt(rightsBase) & RIGHT_FD_WRITE) !== 0n;
       if (stat?.isDirectory() || oflags & OFLAGS.DIRECTORY) {
         if (!stat) return ERRNO.NOENT;
         if (!stat.isDirectory()) return ERRNO.NOTDIR;
+        if (oflags & OFLAGS.CREAT && oflags & OFLAGS.EXCL) return ERRNO.EXIST;
+        if (write || oflags & OFLAGS.TRUNC) return ERRNO.ISDIR;
         fds.set(nextFd, { kind: "dir", path: target });
       } else {
-        const write = (BigInt(rightsBase) & RIGHT_FD_WRITE) !== 0n;
         if (oflags & OFLAGS.EXCL && oflags & OFLAGS.CREAT && stat) return ERRNO.EXIST;
         if (!stat && !(oflags & OFLAGS.CREAT)) return ERRNO.NOENT;
         const flags = write ? (oflags & OFLAGS.TRUNC || !stat ? "w+" : "r+") : "r";
@@ -193,6 +216,13 @@ export function createWasi(fs, { stdout = console.log, stderr = console.error } 
   };
   return {
     imports: { wasi_snapshot_preview1: imports },
+    /** Close the files an abandoned instance left open. */
+    close() {
+      for (const [fd, entry] of fds) if (entry.kind === "file") {
+        try { fs.closeSync(entry.handle); } catch { /* already closed */ }
+        fds.delete(fd);
+      }
+    },
     /** Bind the instance's memory; the engine is a reactor with no start function. */
     initialize(instance) { memory = instance.exports.memory; instance.exports._initialize?.(); },
   };
