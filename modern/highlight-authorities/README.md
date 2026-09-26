@@ -4,7 +4,7 @@ Paste citation/pinpoint instructions, acquire original PDFs, locate passages, re
 
 ## Open the application
 
-Download `Authorities.html` from the latest GitHub release (it is the only release file; pushing a `highlight-authorities-v*` tag builds and publishes it) and open it in current desktop Chrome or Edge. The parser, quality OCR model, PDF.js workers/viewer and PDF writer are embedded. Uploaded-PDF processing needs no installation, account, local server or runtime download.
+Download `Authorities.html` from the latest GitHub release (it is the only release file; the Release Authorities.html workflow builds and publishes it from a `highlight-authorities-v*` tag or a manual run) and open it in current desktop Chrome or Edge. The parser, quality OCR model, PDF.js workers/viewer and PDF writer are embedded. Uploaded-PDF processing needs no installation, account, local server or runtime download.
 
 Paste instructions. **Find PDFs & highlight** resolves through A2AJ and retrieves original publisher PDFs through the configured Worker. CanLII is never automatically fetched: its direct PDF links and batch/per-row upload are the fallback. Filename hints are checked against opening document citations, including official English/French neutral-citation equivalents.
 
