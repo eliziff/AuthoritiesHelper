@@ -1,0 +1,11 @@
+# Exact application runtime closure. pip/setuptools are managed by venv, not the app.
+certifi==2026.7.22
+charset-normalizer==3.4.9
+idna==3.18
+lxml==6.1.1
+PyMuPDF==1.28.0
+python-docx==1.2.0
+pywin32==312; platform_system == "Windows"
+requests==2.34.2
+typing_extensions==4.16.0
+urllib3==2.7.0
