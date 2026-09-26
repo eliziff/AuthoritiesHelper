@@ -1,0 +1,67 @@
+name: GitHub Pages
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+  push:
+    branches: [main]
+    paths: [.github/workflows/pages.yml]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/configure-pages@v5
+      - name: Download and verify the latest stable release of each app
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, subprocess
+
+          repo = os.environ['GITHUB_REPOSITORY']
+          pages = json.loads(subprocess.check_output([
+              'gh', 'api', '--paginate', '--slurp', f'repos/{repo}/releases']))
+          releases = [r for page in pages for r in page if not r['draft'] and not r['prerelease']]
+          for app, filename in [('authorities', 'Authorities.html'), ('authorities-lite', 'Authorities-lite.html')]:
+              release = max((r for r in releases if r['tag_name'].startswith(app + '-v')),
+                            key=lambda r: r['published_at'])
+              asset = next(a for a in release['assets'] if a['name'] == filename)
+              directory = pathlib.Path('site') / app
+              directory.mkdir(parents=True)
+              subprocess.run(['gh', 'release', 'download', release['tag_name'], '--repo', repo,
+                              '--pattern', filename, '--dir', str(directory)], check=True)
+              source = directory / filename
+              digest = 'sha256:' + hashlib.sha256(source.read_bytes()).hexdigest()
+              if digest != asset['digest']:
+                  raise RuntimeError(f'Checksum mismatch: {filename}')
+              source.rename(directory / 'index.html')
+              with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+                  summary.write(f'- {app}: {release["tag_name"]} ({digest})\n')
+          pathlib.Path('site/index.html').write_text(
+              '<!doctype html><html lang="en"><meta charset="utf-8">'
+              '<meta name="viewport" content="width=device-width,initial-scale=1">'
+              '<title>Authorities</title><h1>Authorities</h1>'
+              '<ul><li><a href="authorities/">Authorities</a></li>'
+              '<li><a href="authorities-lite/">Authorities-lite</a></li></ul></html>')
+          PY
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - uses: actions/deploy-pages@v4
+        id: deployment

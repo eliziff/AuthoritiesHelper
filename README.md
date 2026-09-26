@@ -1,5 +1,11 @@
 # AuthoritiesHelper
 
+Open [Authorities](https://eliziff.github.io/AuthoritiesHelper/authorities/) or
+[Authorities-lite](https://eliziff.github.io/AuthoritiesHelper/authorities-lite/)
+in Chrome or Edge. GitHub Pages serves the latest stable release of each app;
+the [downloadable HTML releases](https://github.com/eliziff/AuthoritiesHelper/releases)
+remain available for local use. The site updates after successful release workflows.
+
 AuthoritiesHelper turns citations in a Word document or PDF into a reviewable
 Table or Book of Authorities. Its local browser workspace lets you correct
 citations, resolve sources and review pinpoints before generating documents.
