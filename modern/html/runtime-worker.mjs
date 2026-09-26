@@ -19,11 +19,14 @@ process.dlopen = (module, filename) => {
   if (filename !== ENGINE_PATH || !engineModule) throw new Error(`Cannot load ${filename}`);
   module.exports = createStructureAddon(() => {
     let stderr = "";
-    const wasi = createWasi(fs, { stderr: (text) => { stderr = `${stderr}\n${text}`.slice(-4_000); } });
+    const wasi = createWasi(fs, { stderr: (text) => { stderr = `${stderr}\n${text}`.slice(-4_000); },
+      // The PDF parse cache lives in this tab's memory, not on a disk: keep it small.
+      env: { LEGALPDF_CACHE_MAX_BYTES: String(64 * 1024 * 1024) } });
     const instance = new WebAssembly.Instance(engineModule, wasi.imports);
     wasi.initialize(instance);
     // The panic hook writes "thread ... panicked at file:line:\nmessage".
-    return { instance, panic: () => stderr.split(/panicked at [^\n]*\n/u).at(-1).trim().split("\n")[0] ?? "" };
+    return { instance, close: wasi.close,
+      panic: () => stderr.split(/panicked at [^\n]*\n/u).at(-1).trim().split("\n")[0] ?? "" };
   }, (bytes) => Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength));
 };
 
@@ -47,6 +50,7 @@ function accepts(header, type) {
 
 function createResponse(id) {
   const response = new EventEmitter();
+  response.id = id;
   const headers = {};
   const post = (message, transfer) => self.postMessage({ id, ...message }, transfer ?? []);
   const start = () => {
@@ -89,18 +93,30 @@ function createResponse(id) {
   return response;
 }
 
-// Mirrors the loopback server's error handler.
+// Mirrors the loopback server's error handler. A response already under way is broken
+// off, as the server destroys its socket, so the page does not read it as complete.
 function fail(response, error) {
-  if (response.headersSent) return response.end();
+  if (response.headersSent) {
+    if (response.writableEnded) return;
+    console.error(error);
+    response.writableEnded = true; active.delete(response.id);
+    self.postMessage({ id: response.id, type: "error", message: "Authorities stopped part-way through this response." });
+    response.emit("close");
+    return;
+  }
   const status = error instanceof ApplicationError ? error.status : 500;
   if (status === 500) console.error(error);
   response.status(status).json({ detail: status === 500
     ? "Authorities could not complete that operation" : error.message });
 }
 
-async function handle({ id, method, path, headers, body, form }) {
+async function handle({ id, method, path, headers, body, json, form }) {
   const response = createResponse(id);
   active.set(id, response);
+  if (json !== undefined) {
+    try { body = JSON.parse(json); }
+    catch { return response.status(400).json({ detail: "The request body is not valid JSON." }); }
+  }
   const request = {
     method, path: path.slice(PREFIX.length) || "/", url: path, originalUrl: path, headers,
     body: body === undefined ? {} : body, get: (name) => headers[name.toLowerCase()],
@@ -117,11 +133,17 @@ async function handle({ id, method, path, headers, body, form }) {
 
 self.onmessage = async ({ data }) => {
   if (data.type === "init") {
-    await loadEngine(data.engine);
-    globalThis.AUTHORITIES_RELAY_URL = data.relayUrl;
-    router = createAuthoritiesRuntimeRouter((_request, response, next) => {
-      response.locals.userId = STANDALONE_USER; next();
-    });
+    try {
+      await loadEngine(data.engine);
+      globalThis.AUTHORITIES_RELAY_URL = data.relayUrl;
+      router = createAuthoritiesRuntimeRouter((_request, response, next) => {
+        response.locals.userId = STANDALONE_USER; next();
+      });
+    } catch (error) {
+      // A rejected handler does not reach the page's onerror; say so, or every request waits.
+      self.postMessage({ type: "failed", message: error instanceof Error ? error.message : String(error) });
+      return;
+    }
     self.postMessage({ type: "ready" });
     // Instantiate the engine now, while the user chooses a file, not during their first import.
     setTimeout(() => { try { structureNative().nativeBuildFeatures(); } catch (error) { console.error(error); } });

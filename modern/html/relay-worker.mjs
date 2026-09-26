@@ -46,8 +46,11 @@ export default {
     const upstream = await fetch(target, { method, headers, redirect: "manual",
       body: method === "POST" && typeof input.body === "string" ? input.body : undefined });
     if (Number(upstream.headers.get("content-length")) > MAX_BYTES) return refuse(request, 413, "The source is too large.");
+    // fetch has already decoded the body, so its encoding and length no longer describe it.
+    const described = new Headers(upstream.headers);
+    described.delete("content-encoding"); described.delete("content-length");
     return new Response(upstream.body, { status: 200, headers: cors(request, {
       "x-relay-status": String(upstream.status), "x-relay-status-text": upstream.statusText,
-      "x-relay-headers": JSON.stringify(Object.fromEntries(upstream.headers)) }) });
+      "x-relay-headers": JSON.stringify(Object.fromEntries(described)) }) });
   },
 };

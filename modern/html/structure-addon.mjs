@@ -47,6 +47,8 @@ const SIGNATURES = {
 const DOCUMENT_RESULTS = new Set(["deriveDocumentStructure", "deriveDocxDocument",
   "derivePdfDocument", "restorePdfDocument"]);
 
+/** An error the engine returned; it is still usable afterwards. */
+class EngineError extends Error {}
 /** An opaque engine document, released when JavaScript no longer references it. */
 class NativeDocumentHandle { constructor(handle, generation) { this.handle = handle; this.generation = generation; } }
 
@@ -66,11 +68,13 @@ export function createStructureAddon(instantiate, toBuffer = (bytes) => bytes) {
     try { call("releaseDocument", { document: handle }); } catch { /* engine already reset */ }
   });
   function call(op, args, bytes = new Uint8Array()) {
-    const { instance, panic } = current();
+    const { instance, panic, close } = current();
     try { return exchange(instance.exports, op, args, bytes); }
     catch (error) {
-      if (!(error instanceof WebAssembly.RuntimeError)) throw error;
-      engine = null;
+      if (error instanceof EngineError) throw new Error(error.message);
+      // Anything else interrupted the engine mid-call: a trap, or a stack overflow, which V8
+      // reports as a RangeError and which leaves the engine's stack pointer and heap behind.
+      engine = null; close?.();
       throw new Error(panic() || `The legal-structure engine failed during ${op}.`);
     }
   }
@@ -87,7 +91,7 @@ export function createStructureAddon(instantiate, toBuffer = (bytes) => bytes) {
     view = new Uint8Array(wasm.memory.buffer, output + 9, size - 5).slice();
     wasm.authorities_free(output, size + 4);
     const text = decoder.decode(view.subarray(0, jsonLength));
-    if (!ok) throw new Error(text);
+    if (!ok) throw new EngineError(text);
     return { value: JSON.parse(text), bytes: view.subarray(jsonLength) };
   }
   function invoke(name, positional) {

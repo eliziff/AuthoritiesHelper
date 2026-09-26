@@ -13,49 +13,68 @@ const worker = new Worker(URL.createObjectURL(new Blob([payload.runtime], { type
 const pending = new Map();
 let nextId = 0, failure = null;
 const ready = new Promise((resolve, reject) => {
-  worker.onerror = (event) => {
+  const stop = (message) => {
     // Before start-up this rejects `ready`; afterwards it ends every open request.
-    failure = new Error(`Authorities stopped working: ${event.message}. Reload the page to continue.`);
+    failure = new Error(`Authorities stopped working: ${message}. Reload the page to continue.`);
     reject(failure);
     for (const request of pending.values()) request.fail(failure);
-    pending.clear();
   };
+  worker.onerror = (event) => stop(event.message);
   worker.onmessage = ({ data }) => {
     if (data.type === "ready") return resolve();
+    if (data.type === "failed") return stop(data.message);
     const request = pending.get(data.id);
     if (!request) return;
     if (data.type === "head") request.head(data);
-    else if (data.type === "chunk") request.controller.enqueue(data.bytes);
-    else if (data.type === "end") { pending.delete(data.id); request.controller.close(); }
+    else if (data.type === "chunk") request.chunk(data.bytes);
+    else if (data.type === "end") request.end();
+    else if (data.type === "error") request.fail(new Error(data.message));
   };
   worker.postMessage({ type: "init", engine: payload.engine, relayUrl: payload.relayUrl });
 });
+ready.catch(() => { /* each request reports it */ });
 
-async function encodeBody(request) {
-  const type = request.headers.get("content-type") ?? "";
+/** The body as the Worker takes it. A FormData or string the caller built is passed as is,
+ *  rather than re-encoded and parsed again on this thread; JSON is parsed in the Worker. */
+async function encodeBody(request, init) {
+  const type = request.headers.get("content-type") ?? "", supplied = init?.body;
+  if (supplied instanceof FormData) return { form: [...supplied] };
   if (type.startsWith("multipart/form-data")) return { form: [...await request.formData()] };
-  const text = await request.text();
+  const text = typeof supplied === "string" ? supplied : await request.text();
   if (!text) return {};
-  return { body: type.includes("json") ? JSON.parse(text) : text };
+  return type.includes("json") ? { json: text } : { body: text };
 }
 
-async function runtimeFetch(request, path) {
+const aborted = () => new DOMException("The operation was aborted.", "AbortError");
+
+async function runtimeFetch(request, path, init) {
+  const { signal } = request;
+  if (signal.aborted) throw aborted();
   await ready;
   if (failure) throw failure;
-  const id = ++nextId, message = { type: "request", id, method: request.method, path,
-    headers: Object.fromEntries(request.headers), ...await encodeBody(request) };
+  const encoded = await encodeBody(request, init);
+  if (signal.aborted) throw aborted();
+  const id = ++nextId;
   return new Promise((resolve, reject) => {
     let controller;
+    const finish = () => { pending.delete(id); signal.removeEventListener("abort", onAbort); };
+    const fail = (error) => {
+      finish(); reject(error);
+      try { controller.error(error); } catch { /* already closed */ }
+    };
+    const onAbort = () => { worker.postMessage({ type: "abort", id }); fail(aborted()); };
     const body = new ReadableStream({ start: (value) => { controller = value; },
-      cancel: () => worker.postMessage({ type: "abort", id }) });
-    pending.set(id, { controller, head: ({ status, headers }) => resolve(new Response(
-      [101, 204, 205, 304].includes(status) ? null : body, { status, headers })),
-    fail: (error) => { reject(error); try { controller.error(error); } catch { /* already closed */ } } });
-    request.signal?.addEventListener("abort", () => {
-      worker.postMessage({ type: "abort", id }); pending.delete(id);
-      reject(new DOMException("The operation was aborted.", "AbortError"));
-    }, { once: true });
-    worker.postMessage(message);
+      cancel: () => { worker.postMessage({ type: "abort", id }); finish(); } });
+    signal.addEventListener("abort", onAbort, { once: true });
+    pending.set(id, {
+      head: ({ status, headers }) => resolve(new Response(
+        [101, 204, 205, 304].includes(status) ? null : body, { status, headers })),
+      chunk: (bytes) => { try { controller.enqueue(bytes); } catch { /* reader cancelled */ } },
+      end: () => { finish(); try { controller.close(); } catch { /* reader cancelled */ } },
+      fail,
+    });
+    worker.postMessage({ type: "request", id, method: request.method, path,
+      headers: Object.fromEntries(request.headers), ...encoded });
   });
 }
 
@@ -70,9 +89,10 @@ function localRoute(url, page) {
 const fonts = new Map(Object.entries(payload.fonts));
 const nativeFetch = globalThis.fetch.bind(globalThis);
 globalThis.fetch = async (input, init) => {
-  const request = new Request(input, init);
-  const url = new URL(request.url), route = localRoute(url, location);
-  if (route?.startsWith(API)) return runtimeFetch(request, route);
+  const url = new URL(input instanceof Request ? input.url : String(input), location.href);
+  const route = localRoute(url, location);
+  // A Request is only built for the runtime: building one reads the body of a Request input.
+  if (route?.startsWith(API)) return runtimeFetch(new Request(input, init), route, init);
   if (route?.startsWith(FONTS)) {
     const font = fonts.get(route.slice(FONTS.length));
     return font ? new Response(decode(font)) : new Response(null, { status: 404 });

@@ -11,11 +11,17 @@ export class MulterError extends Error {
   }
 }
 
+// Like multer, files from a rejected upload are removed rather than left behind.
+const discard = (files) => { for (const { path } of files) try { fs.unlinkSync(path); } catch { /* gone */ } };
+
 function stage(options, accept) {
   return (request, _response, callback) => {
+    const fields = {}, files = [];
+    // The staged file is the upload from here on; the decoded copy is not kept alongside it.
+    const parts = request.formParts ?? [];
+    delete request.formParts;
     try {
-      const fields = {}, files = [];
-      for (const [name, value] of request.formParts ?? []) {
+      for (const [name, value] of parts) {
         if (typeof value === "string") { fields[name] = value; continue; }
         if (!accept(name)) throw new MulterError("LIMIT_UNEXPECTED_FILE", name);
         if (value.bytes.byteLength > (options.limits?.fileSize ?? Infinity))
@@ -27,9 +33,9 @@ function stage(options, accept) {
           size: value.bytes.byteLength, destination, filename, path });
       }
       if (files.length > (options.limits?.files ?? Infinity)) throw new MulterError("LIMIT_FILE_COUNT");
-      request.body = { ...(request.body ?? {}), ...fields };
-      callback(null, files);
-    } catch (error) { callback(error); }
+    } catch (error) { discard(files); return callback(error); }
+    request.body = { ...(request.body ?? {}), ...fields };
+    callback(null, files);
   };
 }
 
@@ -44,7 +50,9 @@ export default function multer(options = {}) {
     array: (field, maxCount) => {
       const run = stage(options, (name) => name === field);
       return (request, response, next) => run(request, response, (error, files) => {
-        if (!error && files.length > maxCount) error = new MulterError("LIMIT_UNEXPECTED_FILE", field);
+        if (!error && files.length > maxCount) {
+          discard(files); error = new MulterError("LIMIT_UNEXPECTED_FILE", field);
+        }
         if (!error) request.files = files; next(error);
       });
     },

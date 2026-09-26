@@ -29,6 +29,34 @@ export const process = Object.assign(events, {
   dlopen() { throw new Error("The Authorities engine is not loaded yet."); },
 });
 
-export const setImmediate = (callback, ...args) => setTimeout(callback, 0, ...args);
-export const clearImmediate = (handle) => clearTimeout(handle);
+// Node timers are objects whose ref()/unref() say whether they keep the process alive;
+// a browser timer is a number, and `setInterval(...).unref()` would throw.
+class Timeout {
+  constructor(id) { this.id = id; }
+  ref() { return this; }
+  unref() { return this; }
+  hasRef() { return true; }
+  [Symbol.toPrimitive]() { return this.id; }
+}
+const timerId = (handle) => handle instanceof Timeout ? handle.id : handle;
+const native = { setTimeout: globalThis.setTimeout.bind(globalThis), setInterval: globalThis.setInterval.bind(globalThis),
+  clearTimeout: globalThis.clearTimeout.bind(globalThis), clearInterval: globalThis.clearInterval.bind(globalThis) };
+export const setTimeout = (...args) => new Timeout(native.setTimeout(...args));
+export const setInterval = (...args) => new Timeout(native.setInterval(...args));
+export const clearTimeout = (handle) => native.clearTimeout(timerId(handle));
+export const clearInterval = (handle) => native.clearInterval(timerId(handle));
+// A message runs next without the 4 ms delay browsers add to nested zero timeouts.
+const immediates = new Map(), channel = new MessageChannel();
+let nextImmediate = 0;
+channel.port1.onmessage = ({ data }) => {
+  const task = immediates.get(data);
+  if (task) { immediates.delete(data); task(); }
+};
+export const setImmediate = (callback, ...args) => {
+  const id = ++nextImmediate;
+  immediates.set(id, () => callback(...args));
+  channel.port2.postMessage(id);
+  return new Timeout(id);
+};
+export const clearImmediate = (handle) => { immediates.delete(timerId(handle)); };
 export const global = globalThis;
