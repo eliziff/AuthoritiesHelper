@@ -1,0 +1,43 @@
+name: Release Authorities.html
+
+# Pushing a tag such as highlight-authorities-v0.2.0 builds the standalone app from source
+# and publishes a release whose only file is the self-contained Authorities.html.
+on:
+  push:
+    tags: ['highlight-authorities-v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: modern
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: modern/package-lock.json
+      - run: npm ci
+      - name: Restore pinned inputs
+        run: node highlight-authorities/prepare.mjs
+      - name: Compile the parser engine
+        run: |
+          rustup target add wasm32-unknown-unknown
+          cargo build --locked --release --target wasm32-unknown-unknown --manifest-path highlight-authorities/engine/Cargo.toml
+          mkdir -p highlight-authorities/vendor
+          cp highlight-authorities/engine/target/wasm32-unknown-unknown/release/authorities_browser_engine.wasm highlight-authorities/vendor/legal-structure.wasm
+      - name: Build Authorities.html
+        run: node highlight-authorities/build.mjs
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#highlight-authorities-}"
+          gh release create "$GITHUB_REF_NAME" dist/highlight-authorities/Authorities.html \
+            --title "Authorities ${version}" --latest \
+            --notes "Standalone Authorities app. Download Authorities.html and open it in Chrome or Edge; nothing to install."
