@@ -8,17 +8,33 @@ import { createWasi } from "./wasi.mjs";
 import { createStructureAddon } from "./structure-addon.mjs";
 import { ApplicationError } from "../../../backend/src/lib/applicationError";
 import { createAuthoritiesRuntimeRouter } from "../../../backend/src/routes/authoritiesRuntime";
+import { structureNative } from "../../../backend/src/lib/structureNative";
 
 const PREFIX = "/api/authorities-runtime";
 
-// structureNative() loads its engine through process.dlopen: here, the same crate compiled for WASI.
+// structureNative() loads its engine through process.dlopen: here, the same crate compiled
+// for WASI, compiled once when the runtime starts.
+let engineModule;
 process.dlopen = (module, filename) => {
-  const wasi = createWasi(fs);
-  const instance = new WebAssembly.Instance(new WebAssembly.Module(fs.readFileSync(filename)), wasi.imports);
-  wasi.initialize(instance);
-  module.exports = createStructureAddon(instance,
-    (bytes) => Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength));
+  if (filename !== ENGINE_PATH || !engineModule) throw new Error(`Cannot load ${filename}`);
+  module.exports = createStructureAddon(() => {
+    let stderr = "";
+    const wasi = createWasi(fs, { stderr: (text) => { stderr = `${stderr}\n${text}`.slice(-4_000); } });
+    const instance = new WebAssembly.Instance(engineModule, wasi.imports);
+    wasi.initialize(instance);
+    // The panic hook writes "thread ... panicked at file:line:\nmessage".
+    return { instance, panic: () => stderr.split(/panicked at [^\n]*\n/u).at(-1).trim().split("\n")[0] ?? "" };
+  }, (bytes) => Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength));
 };
+
+async function loadEngine(base64) {
+  const gzipped = Uint8Array.from(atob(base64), (character) => character.charCodeAt(0));
+  const stream = new Blob([gzipped]).stream().pipeThrough(new DecompressionStream("gzip"));
+  engineModule = await WebAssembly.compile(await new Response(stream).arrayBuffer());
+  // structureNative() checks that its engine file exists before loading it.
+  fs.mkdirSync("/engine", { recursive: true });
+  fs.writeFileSync(ENGINE_PATH, "");
+}
 const STANDALONE_USER = "00000000-0000-0000-0000-000000000001";
 let router;
 const active = new Map();
@@ -49,7 +65,7 @@ function createResponse(id) {
     flushHeaders: start,
     write(chunk) {
       start();
-      const out = new Uint8Array(bytes(chunk)).slice();
+      const view = bytes(chunk), out = Uint8Array.prototype.slice.call(view);
       post({ type: "chunk", bytes: out }, [out.buffer]);
       return true;
     },
@@ -101,13 +117,14 @@ async function handle({ id, method, path, headers, body, form }) {
 
 self.onmessage = async ({ data }) => {
   if (data.type === "init") {
-    fs.mkdirSync("/engine", { recursive: true });
-    fs.writeFileSync(ENGINE_PATH, new Uint8Array(data.engine));
+    await loadEngine(data.engine);
     globalThis.AUTHORITIES_RELAY_URL = data.relayUrl;
     router = createAuthoritiesRuntimeRouter((_request, response, next) => {
       response.locals.userId = STANDALONE_USER; next();
     });
     self.postMessage({ type: "ready" });
+    // Instantiate the engine now, while the user chooses a file, not during their first import.
+    setTimeout(() => { try { structureNative().nativeBuildFeatures(); } catch (error) { console.error(error); } });
   } else if (data.type === "request") {
     handle(data).catch((error) => fail(active.get(data.id) ?? createResponse(data.id), error));
   } else if (data.type === "abort") {
