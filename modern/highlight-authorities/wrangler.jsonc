@@ -1,0 +1,8 @@
+{
+  "name": "authorities-provider-pdf",
+  "main": "worker.mjs",
+  "compatibility_date": "2026-06-24",
+  "workers_dev": true,
+  "observability": { "enabled": false },
+  "vars": { "ALLOWED_ORIGINS": "null,https://eliziff.github.io" }
+}

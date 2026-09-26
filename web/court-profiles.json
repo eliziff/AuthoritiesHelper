@@ -1,0 +1,145 @@
+{
+  "schema_version": 1,
+  "verified_on": "2026-08-30",
+  "profiles": [
+    {
+      "id": "general",
+      "label": "General",
+      "summary": "Use the ordinary Authorities workflow without court-specific restrictions.",
+      "defaults": {
+        "output_mode": "book",
+        "pdf_mode": "auto",
+        "tab_style": "numeric",
+        "table_delivery": "native_append",
+        "table_location": "pages",
+        "highlight_style": "margin",
+        "scanned_pdf_policy": "page_margin"
+      },
+      "requirements": [],
+      "sources": []
+    },
+    {
+      "id": "abkb",
+      "label": "Alberta Court of King’s Bench",
+      "summary": "A complete, searchable book matching the authorities and pinpoint format used in the submissions.",
+      "defaults": {
+        "output_mode": "book",
+        "pdf_mode": "originals",
+        "tab_style": "numeric",
+        "highlight_style": "margin",
+        "scanned_pdf_policy": "full"
+      },
+      "requirements": [
+        "Include the authorities cited in the submissions and match their paragraph or page numbering.",
+        "Avoid authorities already reproduced by another party; a joint book is recommended.",
+        "Include both official-language versions of relied-on federal enactments where applicable."
+      ],
+      "sources": [
+        {
+          "title": "Citation Guidelines",
+          "url": "https://albertacourts.ca/kb/resources/citation-guidelines",
+          "locator": "Items 2 and 8–10"
+        },
+        {
+          "title": "King’s Bench General Practice Note 1",
+          "url": "https://www.albertacourts.ca/docs/default-source/qb/general-practice-notes/kb-general-practice-note-1-english.pdf?sfvrsn=a6227c82_16",
+          "locator": "Citation of Authorities"
+        }
+      ]
+    },
+    {
+      "id": "abca",
+      "label": "Alberta Court of Appeal",
+      "summary": "Adds a hyperlinked Table of Authorities to the end of the Word filing; there is no separate book where a public link exists.",
+      "defaults": {
+        "output_mode": "table",
+        "table_delivery": "linked_append",
+        "table_location": "pinpoints",
+        "highlight_style": "none"
+      },
+      "locked": {
+        "output_mode": "table",
+        "table_delivery": "linked_append"
+      },
+      "requirements": [
+        "List each authority, its citation and a free publicly accessible hyperlink at the end of the filing.",
+        "Keep the authorities in first-reference order.",
+        "Do not reproduce a linked authority; if no public link exists, append and bookmark its copy."
+      ],
+      "sources": [
+        {
+          "title": "Finding & Providing Authorities",
+          "url": "https://www.albertacourts.ca/docs/default-source/ca/finding-and-providing-authorities.pdf?sfvrsn=a3952e82_5",
+          "locator": "Pages 1–2; Civil Rule 14.25(1)(h)"
+        }
+      ]
+    },
+    {
+      "id": "fc",
+      "label": "Federal Court",
+      "summary": "A searchable electronic book containing only relied-on authorities, with marked passages, bookmarks, tabs and an index.",
+      "defaults": {
+        "output_mode": "book",
+        "pdf_mode": "originals",
+        "tab_style": "numeric",
+        "highlight_style": "margin",
+        "scanned_pdf_policy": "full"
+      },
+      "allowed": {
+        "pdf_mode": ["auto", "originals"],
+        "highlight_style": ["margin", "paragraph", "text", "sidelined"]
+      },
+      "requirements": [
+        "Include only authorities referred to in the memorandum and clearly mark and bookmark the relied-on passages.",
+        "Use a numeric or alphabetical tab for every source and an index identifying each tab.",
+        "Avoid duplication after consulting other parties; a joint book is acceptable. Reproduce federal enactment extracts in both official languages."
+      ],
+      "sources": [
+        {
+          "title": "Federal Courts Rules",
+          "url": "https://laws-lois.justice.gc.ca/eng/regulations/SOR-98-106/FullText.html",
+          "locator": "Rules 70 and 348"
+        },
+        {
+          "title": "Amended Consolidated General Practice Guidelines",
+          "url": "https://www.fct-cf.gc.ca/Content/assets/pdf/base/2025-06-20__Amended-Consolidated-General-Practice-Guidelines.pdf",
+          "locator": "Paragraphs 19(f), 83 and 84",
+          "effective_from": "2025-06-23"
+        }
+      ]
+    },
+    {
+      "id": "fca",
+      "label": "Federal Court of Appeal",
+      "summary": "A searchable appeal authorities book using the Federal Courts Rules order and electronic-document mechanics.",
+      "defaults": {
+        "output_mode": "book",
+        "pdf_mode": "originals",
+        "tab_style": "numeric",
+        "highlight_style": "margin",
+        "scanned_pdf_policy": "full"
+      },
+      "allowed": {
+        "pdf_mode": ["auto", "originals"],
+        "highlight_style": ["margin", "paragraph", "text", "sidelined"]
+      },
+      "requirements": [
+        "Include only authorities to be referred to at the hearing and mark the relied-on passages.",
+        "Use tabs and an index; avoid duplication and use a joint book where practical.",
+        "For paper filing, Rule 348 prescribes burgundy for a joint book and the memorandum colour for a separate book."
+      ],
+      "sources": [
+        {
+          "title": "Federal Courts Rules",
+          "url": "https://laws-lois.justice.gc.ca/eng/regulations/SOR-98-106/FullText.html",
+          "locator": "Rules 70 and 348"
+        },
+        {
+          "title": "Federal Court of Appeal E-Filing Guide",
+          "url": "https://efiling.fca-caf.gc.ca/en/online-access/guide",
+          "locator": "PDF searchability, bookmarks, links, size and volume requirements"
+        }
+      ]
+    }
+  ]
+}

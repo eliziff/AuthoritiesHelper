@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>AuthoritiesHelper</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="app.js" defer></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <h1>Authorities Helper</h1>
+      <button id="session-new" type="button" class="topbar-action">New session</button>
+    </header>
+
+    <nav class="primary-tabs" aria-label="Main sections">
+      <button class="primary active" data-view="automatic" aria-current="page">Automatic</button>
+      <button class="primary" data-view="manual">Manual</button>
+      <button class="primary" data-view="history">History</button>
+      <button class="primary" data-view="settings">Settings</button>
+    </nav>
+
+    <main>
+      <section id="automatic" class="view active">
+        <section id="automatic-start" class="card workflow-start">
+          <span>Start with a document.</span>
+          <button id="automatic-create" type="button">Create</button>
+        </section>
+        <section class="card workflow-card hidden" data-workflow-content="automatic">
+          <div class="step-heading">
+            <div>
+              <h2>Import and review</h2>
+              <span id="review-summary" class="muted"></span>
+            </div>
+          </div>
+          <div id="import-row" class="import-row">
+            <label id="import-document" class="file-button">
+              <span>Import document</span>
+              <input id="document-input" type="file" accept=".docx,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/pdf">
+            </label>
+          </div>
+          <div id="active-document" class="active-document hidden">
+            <div>
+              <small>Document</small>
+              <strong id="active-document-name"></strong>
+            </div>
+            <button id="replace-document" type="button" class="secondary">Replace document</button>
+          </div>
+
+          <section id="review-card" class="review-panel hidden">
+            <div class="review-workspace">
+              <div id="review-list" class="citation-list" role="listbox" aria-label="Citations"></div>
+              <div id="review-body" class="review-editor"></div>
+            </div>
+          </section>
+        </section>
+
+        <section id="build-card" class="card build-card hidden" data-workflow-content="automatic">
+          <div class="step-heading">
+            <h2>Build outputs</h2>
+          </div>
+          <div class="workflow-primary">
+            <div id="output-setting" class="output-setting"></div>
+            <button id="build-start">Build</button>
+          </div>
+          <div id="automatic-progress-slot" class="progress-slot">
+            <section id="job-status" class="build-progress" aria-live="polite">
+              <strong id="job-message" class="muted"></strong>
+              <progress id="job-progress" max="100" value="0" aria-label="Progress"></progress>
+            </section>
+          </div>
+          <p id="build-blocker" class="build-blocker status-error hidden"></p>
+          <details class="build-options">
+            <summary>Options</summary>
+            <div id="build-settings" class="settings-grid"></div>
+          </details>
+          <aside id="court-profile-note" class="court-profile-note hidden"></aside>
+
+          <section id="insert-card" class="source-panel hidden">
+            <div class="panel-heading wrap">
+              <div>
+                <h3>Add source PDFs</h3>
+                <span id="manifest-summary" class="muted"></span>
+              </div>
+              <div class="row wrap">
+                <button id="canlii-capture-enable" type="button" class="secondary hidden" aria-pressed="false">Auto-attach downloads</button>
+                <label class="check"><input id="omit-placeholders" type="checkbox"> Leave missing sources out</label>
+                <button id="finalize-book">Finish book</button>
+              </div>
+            </div>
+            <p id="canlii-handoff-note" class="canlii-handoff-note muted hidden"></p>
+            <div id="authority-list" class="authority-list"></div>
+          </section>
+        </section>
+
+        <div id="automatic-output-slot" class="output-slot hidden" data-workflow-content="automatic">
+          <section id="output-card" class="card output-card hidden">
+            <div id="output-files" class="file-list"></div>
+          </section>
+        </div>
+      </section>
+
+      <section id="manual" class="view">
+        <section id="manual-start" class="card workflow-start">
+          <span>Start with source PDFs.</span>
+          <button id="manual-create" type="button">Create</button>
+        </section>
+        <section class="card manual-card hidden" data-workflow-content="manual">
+          <div class="manual-controls">
+            <label class="manual-title">Book title
+              <input id="manual-title" value="Book of Authorities">
+            </label>
+            <div class="manual-actions">
+              <span id="manual-count" class="manual-count muted">0 PDFs</span>
+              <label class="file-button">
+                <span>Add PDFs</span>
+                <input id="manual-files" type="file" accept=".pdf,application/pdf" multiple>
+              </label>
+              <button id="manual-build" disabled>Build book</button>
+            </div>
+          </div>
+          <div id="manual-progress-slot" class="progress-slot"></div>
+          <div id="manual-list-header" class="manual-list-header hidden" aria-hidden="true">
+            <span>Order</span><span>Tab</span><span>Displayed title</span><span>PDF</span><span></span>
+          </div>
+          <div id="manual-list" class="manual-list muted"></div>
+        </section>
+        <div id="manual-output-slot" class="output-slot hidden" data-workflow-content="manual"></div>
+      </section>
+
+      <section id="history" class="view">
+        <div class="card history-card">
+          <div id="history-list" class="history-list" aria-live="polite">
+            <p class="muted">Loading&hellip;</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="settings" class="view">
+        <div class="card settings-card">
+          <h2>Preferences</h2>
+          <div id="all-settings" class="settings-grid"></div>
+          <div class="row wrap">
+            <button id="setup-open" type="button" class="secondary">Change workflow defaults</button>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <dialog id="setup-dialog" class="setup-dialog" aria-labelledby="setup-title">
+      <form method="dialog">
+        <h2 id="setup-title">Setup</h2>
+        <fieldset id="setup-source-fieldset">
+          <legend>Source pages</legend>
+          <div class="setup-sources">
+            <label class="choice source-choice">
+              <input type="radio" name="setup-pdf-mode" value="auto">
+              <span class="source-preview original-rebuild" aria-hidden="true"><i></i><i></i><i></i></span>
+              <span><strong>Use originals; rebuild missing sources</strong><small>Keep available court or publisher PDFs and recreate only what is missing.</small></span>
+            </label>
+            <label class="choice source-choice">
+              <input type="radio" name="setup-pdf-mode" value="originals">
+              <span class="source-preview original-stub" aria-hidden="true"><i></i><i></i><i></i></span>
+              <span><strong>Use originals; add a page for missing sources</strong><small>A missing source gets a clearly labelled page instead of reconstructed text.</small></span>
+            </label>
+            <label class="choice source-choice">
+              <input type="radio" name="setup-pdf-mode" value="render">
+              <span class="source-preview rebuild-all" aria-hidden="true"><i></i><i></i><i></i></span>
+              <span><strong>Rebuild all sources from text</strong><small>Create consistent pages from the available source text.</small></span>
+            </label>
+          </div>
+        </fieldset>
+        <fieldset id="setup-marking-fieldset">
+          <legend>Passage marking</legend>
+          <div class="mark-options setup-mark-options">
+            <label class="mark-option">
+              <input type="radio" name="setup-highlight-style" value="margin">
+              <span class="mark-preview margin" aria-hidden="true"><i></i><i></i><i></i><b></b></span>
+              <span><strong>Right-margin marker + exact quote</strong><small>Mark the cited paragraph at the right margin and highlight only matching quoted words.</small></span>
+            </label>
+            <label class="mark-option">
+              <input type="radio" name="setup-highlight-style" value="sidelined">
+              <span class="mark-preview sidelined" aria-hidden="true"><i></i><i></i><i></i><b></b></span>
+              <span><strong>Black paragraph line</strong><small>Add a vertical line beside the cited paragraph without highlighting or underlining text.</small></span>
+            </label>
+            <label class="mark-option">
+              <input type="radio" name="setup-highlight-style" value="paragraph">
+              <span class="mark-preview paragraph" aria-hidden="true"><i></i><i></i><i></i><b></b></span>
+              <span><strong>Highlight the whole cited paragraph</strong><small>Use a full-paragraph highlight, even when there is no exact quote.</small></span>
+            </label>
+            <label class="mark-option">
+              <input type="radio" name="setup-highlight-style" value="text">
+              <span class="mark-preview text" aria-hidden="true"><i></i><i></i><i></i><b></b></span>
+              <span><strong>Highlight exact quotes only</strong><small>Highlight matching quoted words and add no paragraph marker.</small></span>
+            </label>
+            <label class="mark-option">
+              <input type="radio" name="setup-highlight-style" value="none">
+              <span class="mark-preview none" aria-hidden="true"><i></i><i></i><i></i><b></b></span>
+              <span><strong>No passage marks</strong><small>Leave source pages unmarked.</small></span>
+            </label>
+          </div>
+        </fieldset>
+        <fieldset id="setup-manual-fieldset" class="hidden">
+          <legend>Book title</legend>
+          <input id="setup-manual-title" type="text" value="Book of Authorities">
+        </fieldset>
+        <label class="check"><input id="setup-remember" type="checkbox"> Remember for future workflows</label>
+        <div class="row dialog-actions">
+          <button value="cancel" class="secondary">Cancel</button>
+          <button id="setup-submit" value="continue">Start</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="scanned-pdf-dialog" aria-labelledby="scanned-pdf-title">
+      <form method="dialog">
+        <h2 id="scanned-pdf-title">Scanned source pages</h2>
+        <p>The page images remain unchanged. Choose how much searchable text to add.</p>
+        <ol class="scan-flow" aria-label="How scanned PDFs are handled">
+          <li><strong>Scan</strong><small>Page images</small></li>
+          <li><strong>Recover text</strong><small>Only as needed</small></li>
+          <li><strong>Review &amp; build</strong><small>Original pages kept</small></li>
+        </ol>
+        <fieldset>
+          <legend>Choose how much text to recover</legend>
+          <label class="choice"><input type="radio" name="scanned-policy" value="page_margin"> <span><strong>Keep the scan; mark cited pages</strong><small>Fastest. The image stays readable but its words remain unsearchable.</small></span></label>
+          <label class="choice"><input type="radio" name="scanned-policy" value="cited_pages"> <span><strong>Make cited pages searchable</strong><small>Add searchable text only to pages cited by the document.</small></span></label>
+          <label class="choice"><input type="radio" name="scanned-policy" value="full"> <span><strong>Make every page searchable</strong><small>Slowest. Recognition may need review, but every page can be searched.</small></span></label>
+        </fieldset>
+        <label class="check"><input id="scanned-do-not-show" type="checkbox"> Use this choice next time</label>
+        <div class="row dialog-actions">
+          <button value="cancel" class="secondary">Cancel</button>
+          <button value="continue">Continue</button>
+        </div>
+      </form>
+    </dialog>
+
+    <div id="toast" role="status" aria-live="polite"></div>
+  </body>
+</html>

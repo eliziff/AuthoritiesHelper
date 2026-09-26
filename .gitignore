@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.toa-cache/
+*-toa/
+*.toa-review.json
+_smoke/
+.pytest_cache/
+.qa/
+.tmp-qa/
+tmp????????/
+BOOKS_OF_AUTHORITIES/

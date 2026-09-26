@@ -1,0 +1,5 @@
+.authorities-dev/
+out/
+dist/
+node_modules/
+vendor/
