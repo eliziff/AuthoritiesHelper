@@ -80,25 +80,25 @@ export function initialMarks(findings) {
 }
 // CanLII names its PDFs by neutral citation (2019abqb666.pdf); browsers append " (1)" to repeats.
 export const CANLII_PDF_NAME = /^(\d{4})([a-z]{2,10})(\d{1,5})(?: ?\(\d+\))?\.pdf$/i;
-// Newest recent top-level CanLII-named PDF per citation, e.g. {citation:'2019 ABQB 666', file}; same rules as pickDownloads.
-export function recentCanliiFiles(files, now = Date.now(), maxAge = 24 * 60 * 60 * 1000) {
+// Newest top-level CanLII-named PDF per citation, e.g. {citation:'2019 ABQB 666', file}; same rules as pickDownloads.
+export function canliiFiles(files) {
   const best = new Map();
   for (const file of files) {
     const match = CANLII_PDF_NAME.exec(file.name);
-    if (!match || (file.webkitRelativePath || '').split('/').length > 2 || now - file.lastModified > maxAge) continue;
+    if (!match || (file.webkitRelativePath || '').split('/').length > 2) continue;
     const citation = `${match[1]} ${match[2].toUpperCase()} ${match[3]}`;
     if (!(best.get(citation)?.lastModified >= file.lastModified)) best.set(citation, file);
   }
   return [...best].map(([citation, file]) => ({ citation, file }));
 }
-// Picks, per authority still missing its PDF, the newest recent top-level file named for one of its citations.
-export function pickDownloads(files, records, now = Date.now(), maxAge = 24 * 60 * 60 * 1000) {
+// Picks, per authority still missing its PDF, the newest top-level file named for one of its citations.
+export function pickDownloads(files, records) {
   const wanted = new Map();
   for (const r of records) if (!r.document) for (const c of r.aliases) wanted.set(key(c), r);
   const best = new Map();
   for (const file of files) {
     const match = CANLII_PDF_NAME.exec(file.name);
-    if (!match || (file.webkitRelativePath || '').split('/').length > 2 || now - file.lastModified > maxAge) continue;
+    if (!match || (file.webkitRelativePath || '').split('/').length > 2) continue;
     const record = wanted.get(key(match.slice(1, 4).join('')));
     if (record && !(best.get(record)?.lastModified >= file.lastModified)) best.set(record, file);
   }

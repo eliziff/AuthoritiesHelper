@@ -1,7 +1,7 @@
 import {useRef,useState,useSyncExternalStore} from 'react';import {createRoot} from 'react-dom/client';import {flushSync} from 'react-dom';
 import {AlertTriangle,CheckCircle2,Circle,Download,ExternalLink,Eye,FilePlus2,FileText,FolderSearch,ArrowLeft,Globe,Highlighter,Loader2,Redo2,SquareDashed,TextSelect,Undo2,Search,Square,X} from 'lucide-react';
 import {createEngine} from './engine.mjs';import {bytes} from './assets.mjs';
-import {parseInstructions,key,targetLabel,pickDownloads,recentCanliiFiles} from './domain.mjs';
+import {parseInstructions,key,targetLabel,pickDownloads,canliiFiles} from './domain.mjs';
 import {canliiPdf,resolveRecord,retrievePdf,download,makeZip,DEFAULT_SERVICE_URL} from './client.mjs';
 import {inspectPdf,verifyIdentity,headerIdentities,attachFindings,exportPdf} from './pdf.mjs';import {makeViewer} from './viewer.mjs';
 
@@ -62,7 +62,7 @@ async function saveRecord(record){notice(`Preparing ${record.citation}`);const d
 async function downloadAll(){setBusy(true);try{const files=[];for(const r of records.filter(r=>r.enabled&&r.document)){notice(`Preparing ${r.citation}`);files.push({name:filename(r),data:await exportPdf(r.document)});}download(makeZip(files),'Highlighted-authorities.zip');notice('');}catch(error){notice(error.message);}finally{setBusy(false);}}
 
 // Auto-fetch from folder: the user picks the folder once (showDirectoryPicker in Chrome/Edge) and the app keeps watching it,
-// adding each recent CanLII-named PDF as it lands until the tab closes or the button is clicked again.
+// adding each CanLII-named PDF as it lands until the tab closes or the button is clicked again.
 // Browsers without that API get a one-time <input webkitdirectory> read.
 const WATCH_INTERVAL=2000;let watched=null,watchTimer=null,scanning=false;const seen=new Set();
 function stopWatching(text){clearInterval(watchTimer);watchTimer=null;watched=null;if(text)notice(text);else emit();}
@@ -82,11 +82,11 @@ async function fetchFromFolder(){if(busy)return;
  watched=dir;seen.clear();emit();
  await scanWatched(true);if(watched===dir){watchTimer=setInterval(scanWatched,WATCH_INTERVAL);if(!message)notice(`Watching ${dir.name}: CanLII PDFs saved there are added automatically.`);}}
 async function addFromFolder(files,quiet=false){const picks=pickDownloads(files,records),picked=new Set(picks.map(p=>p.file));
- // Recent CanLII PDFs with no listed authority to bind to become their own entries, citation taken from the filename; bind() still runs the first-page citation check.
- const extras=[];for(const {citation,file} of recentCanliiFiles(files)){if(picked.has(file)||records.some(r=>r.aliases.some(c=>key(c)===key(citation))))continue;
+ // CanLII PDFs with no listed authority to bind to become their own entries, citation taken from the filename; bind() still runs the first-page citation check.
+ const extras=[];for(const {citation,file} of canliiFiles(files)){if(picked.has(file)||records.some(r=>r.aliases.some(c=>key(c)===key(citation))))continue;
   let r;try{r=parseInstructions(citation,engine)[0];}catch{}if(r&&!records.some(a=>a.id===r.id)){records.push(r);extras.push({record:r,file});}}
  if(extras.length)emit();const all=[...picks,...extras];
- if(!all.length)return quiet?undefined:notice('No PDF downloaded in the last day is named like a CanLII citation (e.g. 2019abqb666.pdf)'+(records.some(r=>!r.document)?' for a missing authority.':'.'));
+ if(!all.length)return quiet?undefined:notice('No PDF in that folder is named like a CanLII citation (e.g. 2019abqb666.pdf)'+(records.some(r=>!r.document)?' for a missing authority.':'.'));
  for(const {record,file} of all)await upload([file],record);
  for(const {record} of extras)if(!record.document)records.splice(records.indexOf(record),1);if(extras.length)emit();
  const added=all.filter(p=>p.record.document).length,missing=records.filter(r=>!r.document).length;
