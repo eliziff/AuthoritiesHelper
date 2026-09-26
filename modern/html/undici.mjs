@@ -1,9 +1,28 @@
 // Outbound requests from the runtime. Hosts that serve browsers directly (A2AJ
-// sends Access-Control-Allow-Origin: *) are fetched from the page; every other
-// source goes through the Authorities relay, which returns the upstream status,
-// headers and redirects that the runtime's own redirect handling expects.
+// sends Access-Control-Allow-Origin: *) are fetched from the page. Court publisher
+// PDFs come from the Cloudflare Worker Authorities-lite uses, which returns the
+// publisher's own PDF for a decision page or PDF URL. Any other source goes through
+// the Authorities relay, which returns the upstream status, headers and redirects
+// that the runtime's own redirect handling expects.
+import { DECISIA_HOSTS } from "../../../backend/src/lib/legalSourcePresentation";
 
 const DIRECT_HOSTS = new Set(["api.a2aj.ca"]);
+const PUBLISHER_SERVICE = "https://quiet-wildflower-ab0d.eliziffprofessional.workers.dev/";
+const PUBLISHER_HOSTS = new Set([...DECISIA_HOSTS, "www.bccourts.ca", "bccourts.ca"]);
+
+async function publisherPdf(url, init) {
+  if ((init.method ?? "GET").toUpperCase() !== "GET")
+    throw new Error(`${url.hostname} is only read, never written to.`);
+  const service = new URL("pdf", PUBLISHER_SERVICE);
+  service.searchParams.set("source", url.href);
+  const response = await globalThis.fetch(service, { signal: init.signal, credentials: "omit",
+    referrerPolicy: "no-referrer" });
+  if (!response.ok) {
+    const detail = await response.json().catch(() => null);
+    throw new Error(detail?.error ?? `The publisher PDF service could not reach ${url.hostname}.`);
+  }
+  return response;
+}
 
 export class Agent {
   constructor() {}
@@ -21,6 +40,7 @@ export async function fetch(input, init = {}) {
     return globalThis.fetch(url, { ...rest, credentials: "omit", referrerPolicy: "no-referrer",
       redirect: redirect === "manual" ? "follow" : redirect });
   }
+  if (PUBLISHER_HOSTS.has(url.hostname)) return publisherPdf(url, rest);
   const relay = relayUrl();
   if (!relay) throw new Error(`${url.hostname} can only be reached through the Authorities relay, ` +
     "which this copy is not configured with. Attach the PDF instead.");
