@@ -12,6 +12,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { gzipSync } from "node:zlib";
 import { assertStandaloneFrontendModules } from "../scripts/authorities-package/bundle.mjs";
 import { bundleRuntime } from "./runtime-bundle.mjs";
 
@@ -62,7 +63,8 @@ export async function buildAuthoritiesHtml(output) {
   const { html, script, css } = await buildFrontend();
   const bridge = await bundleBridge({
     runtime: runtime.code, relayUrl,
-    engine: readFileSync(engine).toString("base64"),
+    // Gzip keeps the page small; the runtime Worker inflates and compiles it off the main thread.
+    engine: gzipSync(readFileSync(engine), { level: 9 }).toString("base64"),
     fonts: Object.fromEntries(readdirSync(fonts).filter((name) => !name.startsWith("LICENSE"))
       .map((name) => [name, readFileSync(path.join(fonts, name)).toString("base64")])),
   });

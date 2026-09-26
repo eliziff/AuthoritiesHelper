@@ -48,18 +48,33 @@ const DOCUMENT_RESULTS = new Set(["deriveDocumentStructure", "deriveDocxDocument
   "derivePdfDocument", "restorePdfDocument"]);
 
 /** An opaque engine document, released when JavaScript no longer references it. */
-class NativeDocumentHandle { constructor(handle) { this.handle = handle; } }
+class NativeDocumentHandle { constructor(handle, generation) { this.handle = handle; this.generation = generation; } }
 
 /**
- * @param {WebAssembly.Instance} instance the WASI-initialized engine module
+ * @param {() => { instance: WebAssembly.Instance, panic: () => string }} instantiate
+ *   a fresh WASI-initialized engine and the panic text it last wrote to stderr
  * @param {(bytes: Uint8Array) => Uint8Array} toBuffer wraps result bytes as the host's Buffer
  */
-export function createStructureAddon(instance, toBuffer = (bytes) => bytes) {
-  const wasm = instance.exports, encoder = new TextEncoder(), decoder = new TextDecoder();
-  const released = new FinalizationRegistry((handle) => {
+export function createStructureAddon(instantiate, toBuffer = (bytes) => bytes) {
+  const encoder = new TextEncoder(), decoder = new TextDecoder();
+  // A Rust panic traps the instance and leaves its memory unusable; the next call starts
+  // a new one. Documents belong to the instance that made them.
+  let engine = null, generation = 0;
+  const current = () => engine ??= { ...instantiate(), generation: ++generation };
+  const released = new FinalizationRegistry(({ handle, generation: owner }) => {
+    if (engine?.generation !== owner) return;
     try { call("releaseDocument", { document: handle }); } catch { /* engine already reset */ }
   });
   function call(op, args, bytes = new Uint8Array()) {
+    const { instance, panic } = current();
+    try { return exchange(instance.exports, op, args, bytes); }
+    catch (error) {
+      if (!(error instanceof WebAssembly.RuntimeError)) throw error;
+      engine = null;
+      throw new Error(panic() || `The legal-structure engine failed during ${op}.`);
+    }
+  }
+  function exchange(wasm, op, args, bytes) {
     const json = encoder.encode(JSON.stringify({ op, args }));
     const length = 4 + json.length + bytes.length, input = wasm.authorities_alloc(length);
     let view = new Uint8Array(wasm.memory.buffer, input, length);
@@ -80,14 +95,18 @@ export function createStructureAddon(instance, toBuffer = (bytes) => bytes) {
     SIGNATURES[name].forEach((key, index) => {
       const value = positional[index];
       if (key === "bytes") bytes = value;
-      else if (key === "document") args.document = value?.handle;
-      else args[key] = value ?? null;
+      else if (key === "document") {
+        if (value?.generation !== engine?.generation)
+          throw new Error("This document was lost when the engine restarted. Reopen it and try again.");
+        args.document = value.handle;
+      } else args[key] = value ?? null;
     });
     const { value, bytes: out } = call(name, args, bytes && new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength));
     if (DOCUMENT_RESULTS.has(name)) {
       if (!value) return null;
-      const document = new NativeDocumentHandle(value.handle);
-      released.register(document, value.handle); return document;
+      const document = new NativeDocumentHandle(value.handle, engine.generation);
+      released.register(document, { handle: value.handle, generation: engine.generation });
+      return document;
     }
     if (name === "fixDocxSupraCrossReferences") return { ...value, bytes: toBuffer(out) };
     return value;
