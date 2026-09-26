@@ -1,10 +1,16 @@
 name: Release Authorities.html
 
-# Pushing a tag such as highlight-authorities-v0.2.0 builds the standalone app from source
-# and publishes a release whose only file is the self-contained Authorities.html.
+# Pushing a tag such as highlight-authorities-v0.2.0, or running this workflow with a version,
+# builds the standalone app from source and publishes a release whose only file is the
+# self-contained Authorities.html.
 on:
   push:
     tags: ['highlight-authorities-v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to release, e.g. v0.2.0
+        required: true
 
 permissions:
   contents: write
@@ -36,8 +42,10 @@ jobs:
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
-          version="${GITHUB_REF_NAME#highlight-authorities-}"
-          gh release create "$GITHUB_REF_NAME" dist/highlight-authorities/Authorities.html \
+          version="${INPUT_VERSION:-${GITHUB_REF_NAME#highlight-authorities-}}"
+          gh release create "highlight-authorities-${version}" dist/highlight-authorities/Authorities.html \
+            --target "$GITHUB_SHA" \
             --title "Authorities ${version}" --latest \
             --notes "Standalone Authorities app. Download Authorities.html and open it in Chrome or Edge; nothing to install."
