@@ -35,7 +35,6 @@ shared with the engine. The bundle checks are the loopback package's.
 ```sh
 cargo build --locked --release --target wasm32-wasip1 --manifest-path native/legal-structure-node/Cargo.toml
 npm run build:authorities-html
-npm run test:authorities:html
 ```
 
 A2AJ answers browsers directly. Publisher sites do not, so remote source
