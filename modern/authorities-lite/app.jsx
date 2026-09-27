@@ -19,11 +19,11 @@ let pickPdfs=()=>{},pickFolder=()=>{};
 async function parse(){
  if(!engine||busy)return;
  const next=parseInstructions(paste,engine);
- for(const r of next){const existing=records.find(a=>a.id===r.id);if(existing?.document){if(JSON.stringify(existing.targets)===JSON.stringify(r.targets))Object.assign(r,{document:existing.document,status:existing.status,aliases:existing.aliases,sourceUrl:existing.sourceUrl,sourceMetadata:existing.sourceMetadata});else{if(!confirm(`Changing pinpoints resets highlights for ${r.citation}. Continue?`))return;Object.assign(r,{document:existing.document,aliases:existing.aliases,sourceUrl:existing.sourceUrl});attachFindings(r.document,r);r.status=completeStatus(r);}}}
+ for(const r of next){const existing=records.find(a=>a.id===r.id);if(existing?.document){if(JSON.stringify(existing.targets)===JSON.stringify(r.targets))Object.assign(r,{document:existing.document,status:existing.status,aliases:existing.aliases,sourceUrl:existing.sourceUrl,sourceMetadata:existing.sourceMetadata});else{if(!confirm(`Changing pinpoints resets highlights for ${r.citation}. Continue?`))return;Object.assign(r,{document:existing.document,aliases:existing.aliases,sourceUrl:existing.sourceUrl});attachFindings(r.document,r,engine);r.status=completeStatus(r);}}}
  records.splice(0,records.length,...next);notice(next.length||!paste.trim()?'':'No complete case citations were detected.');
 }
 async function bind(record,data,signal){
- const doc=await inspectPdf(data,engine,s=>setStatus(record,s),signal,record);attachFindings(doc,record);record.document=doc;setStatus(record,completeStatus(record));
+ const doc=await inspectPdf(data,engine,s=>setStatus(record,s),signal,record);attachFindings(doc,record,engine);record.document=doc;setStatus(record,completeStatus(record));
 }
 async function find(){
  if(busy)return;controller=new AbortController();setBusy(true);notice('');
@@ -52,7 +52,7 @@ async function upload(files,explicit){
       notice(`Identifying ${file.name}`);const doc=await inspectPdf(data,engine,s=>notice(`${file.name}: ${s}`),controller.signal);
       const identities=new Set(headerIdentities(doc.pages,engine).map(m=>m.key).filter(Boolean));const matches=keyedRecords.filter(r=>[...r.keys].some(identity=>identities.has(identity))).map(r=>r.record);
       if(matches.length!==1)throw new Error('No unique matching authority. Use Load PDF on its row after checking the citation.');
-      record=matches[0];verifyIdentity(doc.pages,record,engine);if(record.document&&!confirm(`Replace ${record.citation} and its highlights?`))continue;attachFindings(doc,record);record.document=doc;setStatus(record,completeStatus(record));notice('');
+      record=matches[0];verifyIdentity(doc.pages,record,engine);if(record.document&&!confirm(`Replace ${record.citation} and its highlights?`))continue;attachFindings(doc,record,engine);record.document=doc;setStatus(record,completeStatus(record));notice('');
     }
    }catch(error){notice(`${file.name}: ${error.message}`);if(record)setStatus(record,error.message,true);}
   }

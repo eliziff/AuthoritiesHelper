@@ -149,8 +149,8 @@ export function verifyIdentity(pages,record,engine){
   if(!own.length&&scrRunningHead(pages,aliases,engine))return;
   if(!candidates.some(i=>i.key && accepted.has(i.key)))throw new Error(own.length?`Wrong PDF: its opening citation is ${own[0].text}, not ${record.citation}.`:'The opening citation could not be verified. Keep this file unbound and check its first page.');
 }
-export function attachFindings(document,record){
-  document.findings=findTargets(document,record.targets);document.marks=initialMarks(document.findings);document.undo=[];document.redo=[];
+export function attachFindings(document,record,engine){
+  document.findings=findTargets(document,record.targets,engine);document.marks=initialMarks(document.findings);document.undo=[];document.redo=[];
   return document;
 }
 export async function exportPdf(document){

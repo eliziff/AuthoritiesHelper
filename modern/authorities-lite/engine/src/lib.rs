@@ -7,6 +7,12 @@ fn run(bytes: &[u8]) -> Result<Value, String> {
     if bytes.len() > 24_000_000 { return Err("Document is too large for this browser operation".into()); }
     let input: Value = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
     match input["op"].as_str() {
+        Some("numbered_item") => {
+            let parent = serde_json::from_value(input["parent"].clone()).map_err(|e| e.to_string())?;
+            let lines: Vec<(usize, String)> = serde_json::from_value(input["lines"].clone()).map_err(|e| e.to_string())?;
+            let item = input["item"].as_str().ok_or("Missing item label")?;
+            Ok(json!({"ok": true, "offset_unit": "utf16", "range": legal_structure::numbered_item_range(parent, &lines, item)}))
+        }
         Some("citation") => {
             let method = input["method"].as_str().ok_or("Missing citation method")?;
             let result = legal_structure::citations::api::call_value(method, input["request"].clone()).map_err(|error| error.to_string())?;

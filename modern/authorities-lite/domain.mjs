@@ -35,7 +35,7 @@ export function parseInstructions(text, engine) {
   }
   return [...records.values()];
 }
-export function findTargets(document, targets) {
+export function findTargets(document, targets, engine) {
   const { nodes, text, lines } = document;
   return targets.map(target => {
     let selected = [];
@@ -47,15 +47,10 @@ export function findTargets(document, targets) {
     if (matching.length !== 1) return { target, status: 'unlocated', message: matching.length ? 'Repeated paragraph address needs review.' : 'Paragraph address was not confidently located.' };
     let { start, end } = matching[0].range;
     if (target.item) {
-      // The parent extent comes from Rust. Only a visibly bounded list item inside it may narrow the target.
-      const inside = lines.filter(l => l.start >= start && l.start < end);
-      const markers = inside.flatMap(l => {
-        const m = /^\s*(?:\((\d+[a-z]?)\)|(\d+[a-z]?)[.)])\s+/i.exec(l.text);
-        return m ? [{ line: l, value: m[1] || m[2] }] : [];
-      });
-      const index = markers.findIndex(m => m.value === target.item);
-      if (index < 0 || markers.filter(m => m.value === target.item).length !== 1) return { target, status: 'unlocated', message: `Paragraph found; item ${target.item} needs review.` };
-      start = markers[index].line.start; end = markers[index + 1]?.line.start ?? end;
+      const {range}=engine({op:'numbered_item',parent:{start,end},item:target.item,
+        lines:lines.filter(l=>l.start>=start&&l.start<end).map(l=>[l.start,l.text])});
+      if (!range) return { target, status: 'unlocated', message: `Paragraph found; item ${target.item} needs review.` };
+      ({start,end}=range);
     }
     selected = lines.filter(l => l.end > start && l.start < end && l.text.trim() && !l.excluded);
     if (!selected.length) return { target, status: 'unlocated', message: 'The paragraph has no reliable page geometry.' };
