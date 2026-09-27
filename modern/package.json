@@ -2,14 +2,26 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "prepare:highlight": "node highlight-authorities/prepare.mjs",
-    "build:highlight": "node highlight-authorities/build.mjs"
+    "prepare:lite": "node authorities-lite/prepare.mjs",
+    "build:lite": "node authorities-lite/build.mjs"
   },
   "dependencies": {
+    "lucide-react": "0.553.0",
     "pdf-lib": "1.17.1",
-    "pdfjs-dist": "4.10.38"
+    "pdfjs-dist": "4.10.38",
+    "react": "19.2.0",
+    "react-dom": "19.2.0"
   },
   "devDependencies": {
-    "esbuild": "0.25.9"
+    "@noble/hashes": "2.4.0",
+    "@tailwindcss/cli": "4.1.14",
+    "buffer": "6.0.3",
+    "esbuild": "0.25.9",
+    "events": "3.3.0",
+    "memfs": "4.79.0",
+    "path-browserify": "1.0.1",
+    "readable-stream": "4.7.0",
+    "tailwindcss": "4.1.14",
+    "util": "0.12.5"
   }
 }

@@ -1,0 +1,7 @@
+// Deploy the Authorities relay: build it with `node html/build.mjs --relay`, then
+// `npx wrangler deploy --config html/relay-wrangler.jsonc` from AuthoritiesHelper/modern.
+{
+  "name": "authorities-relay",
+  "main": "../out/relay-worker.js",
+  "compatibility_date": "2026-06-24"
+}

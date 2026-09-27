@@ -1,16 +1,16 @@
-# Authorities — local HTML + publisher PDF Worker
+# Authorities-lite — local HTML + publisher PDF Worker
 
 Paste citation/pinpoint instructions, acquire original PDFs, locate passages, review highlights, and export editable annotated PDFs. This prototype does not change Beaver Authorities or the original OCR application.
 
 ## Open the application
 
-Open `Authorities.html` in current desktop Chrome or Edge. The parser, quality OCR model, PDF.js workers/viewer and PDF writer are embedded. Uploaded-PDF processing needs no installation, account, local server or runtime download.
+Download `Authorities-lite.html` from the latest `authorities-lite-v*` GitHub release (its only file; the Release workflow builds and publishes it from an `authorities-lite-v*` tag or a manual run). Authorities-lite is distinct from the full Authorities app, released as `Authorities.html` under `authorities-v*`, and open it in current desktop Chrome or Edge. The parser, quality OCR model, PDF.js workers/viewer and PDF writer are embedded. Uploaded-PDF processing needs no installation, account, local server or runtime download.
 
 Paste instructions. **Find PDFs & highlight** resolves through A2AJ and retrieves original publisher PDFs through the configured Worker. CanLII is never automatically fetched: its direct PDF links and batch/per-row upload are the fallback. Filename hints are checked against opening document citations, including official English/French neutral-citation equivalents.
 
 Review provides pinpoint navigation, text-selection and area highlighting, colour/opacity, delete, undo/redo. Scans use measured line geometry rather than invented word boxes. Export writes unlocked `/Highlight` annotations with `/QuadPoints` and printable appearances, not flattened page rectangles. **Download all** includes acquired, checked records; unresolved sources are not fabricated.
 
-**Auto-fetch from folder** adds the PDFs you downloaded from the rows' **CanLII PDF** links. Clicking it opens a folder picker directly (Chrome and Edge use the native directory picker; other browsers use a folder upload); the app takes only top-level PDFs saved in the last day whose names follow CanLII's convention of year, court and number, such as `2019abqb666.pdf` or `2019abqb666 (1).pdf`, and binds each to its authority. Nothing else in the folder is read. Browsers do not let a page watch or read Downloads on its own, and Chrome and Edge refuse folder access to Downloads itself, so each fetch is one pick of the folder rather than background polling. It works in Chrome, Edge, Firefox and Safari. To print three copies, open the exported PDFs in Acrobat, select **Document and Markups**, and set three copies in the print dialog.
+**Auto-fetch from folder** adds the PDFs you download from the rows' **CanLII PDF** links. Click it once and choose the folder your browser saves to: in Chrome and Edge the app then keeps watching that folder while the tab is open, checking every two seconds and binding each new PDF to its authority as it lands. The button reads **Watching <folder> · Stop** while active; click it to stop. Only top-level PDFs whose names follow CanLII's convention of year, court and number (`2019abqb666.pdf`, `2019abqb666 (1).pdf`) are taken; nothing else in the folder is read. Firefox and Safari have no folder-watching API, so there the button does a one-time folder upload. Chrome and Edge refuse to share the Downloads, Desktop and Documents folders themselves (and the home folder), so point the browser's download location at a subfolder such as `Downloads\Authorities` and pick that. To print three copies, open the exported PDFs in Acrobat, select **Document and Markups**, and set three copies in the print dialog.
 
 ## Cloudflare setup
 
@@ -56,4 +56,4 @@ Ambiguous paragraphs/items remain visible findings. Reporter-page pinpoints curr
 
 Independent PDF annotation editing is not manual Acrobat certification.
 
-The integration is **MIT**-licensed, Copyright (c) 2026 Elias Ziff. The Beaver code it reuses was written by the same author and is included under the same MIT terms. The ready-built package contains the MIT license and `THIRD_PARTY_NOTICES.md`; components/models retain their own notices and licenses. Corresponding source: https://github.com/eliziff/AuthoritiesHelper/tree/main/modern/highlight-authorities .
+The integration is **MIT**-licensed, Copyright (c) 2026 Elias Ziff. The Beaver code it reuses was written by the same author and is included under the same MIT terms. The ready-built package contains the MIT license and `THIRD_PARTY_NOTICES.md`; components/models retain their own notices and licenses. Corresponding source: https://github.com/eliziff/AuthoritiesHelper/tree/main/modern/authorities-lite .

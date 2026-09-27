@@ -1,6 +1,11 @@
 /** Real browser -> standalone HTTP -> shared TypeScript -> Rust -> PDF smoke.
  * A tiny local A2AJ fixture inventory replaces only the external data source.
  * No CanLII page is fetched and no application endpoint is mocked.
+ *
+ * `--html <Authorities.html>` runs the same flow against the self-contained page
+ * opened from disk, where the runtime and the Rust engine (WebAssembly) run in the
+ * browser. The local A2AJ inventory is a server data source, so there names come
+ * from the imported document.
  */
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
@@ -27,6 +32,8 @@ const nativeFile = process.env.LEGAL_STRUCTURE_NATIVE || path.join(root,
       ? "liblegal_structure_node.dylib" : "liblegal_structure_node.so");
 const nativeModule = { exports: {} }; process.dlopen(nativeModule, nativeFile);
 const native = nativeModule.exports;
+const htmlFlag = process.argv.indexOf("--html");
+const html = htmlFlag > 0 ? path.resolve(process.argv[htmlFlag + 1] ?? "") : null;
 const stage = await mkdtemp(path.join(tmpdir(), "authorities-browser-"));
 const output = path.resolve(process.env.AUTHORITIES_SMOKE_OUTPUT || path.join(stage, "results"));
 await mkdir(output, { recursive: true });
@@ -86,28 +93,33 @@ try {
   for (let line = 0; line < 12; line++) scannedPage.drawRectangle({ x: 50, y: 700 - 18 * line,
     width: 390 - (line % 3) * 50, height: 4, color: rgb(0.35, 0.35, 0.35) });
   await writeFile(scanPdf, await scan.save());
-  await buildAuthoritiesFrontend(stage); await bundleAuthorities(stage);
-  const listener = createServer();
-  await new Promise((resolve, reject) => { listener.once("error", reject); listener.listen(0, "127.0.0.1", resolve); });
-  const port = listener.address().port;
-  await new Promise((resolve) => listener.close(resolve));
-  const origin = `http://127.0.0.1:${port}`;
-  const entry = path.join(stage, "backend/dist/authoritiesStandalone.js");
-  child = spawn(process.execPath, [entry], { cwd: root, stdio: ["ignore", "pipe", "pipe"], env: {
-    ...process.env, PORT: String(port), LEGAL_STRUCTURE_NATIVE: nativeFile,
-    AUTHORITIES_BUILD_ID: createHash("sha256").update(await readFile(entry)).digest("hex"),
-    MIKE_A2AJ_BULK_DB: databasePath, MIKE_CITATOR_DB: path.join(stage, "no-citator.sqlite"),
-  } });
-  child.stdout.on("data", (chunk) => { serverLog += chunk; });
-  child.stderr.on("data", (chunk) => { serverLog += chunk; });
-  let healthy = false;
-  for (let attempt = 0; attempt < 100; attempt++) {
-    if (child.exitCode !== null) throw new Error(`Standalone exited: ${serverLog}`);
-    try { healthy = (await fetch(`${origin}/health`)).ok; } catch { /* start-up */ }
-    if (healthy) break;
-    await new Promise((resolve) => setTimeout(resolve, 100));
+  let pageUrl;
+  if (html) pageUrl = pathToFileURL(html).href;
+  else {
+    await buildAuthoritiesFrontend(stage); await bundleAuthorities(stage);
+    const listener = createServer();
+    await new Promise((resolve, reject) => { listener.once("error", reject); listener.listen(0, "127.0.0.1", resolve); });
+    const port = listener.address().port;
+    await new Promise((resolve) => listener.close(resolve));
+    const origin = `http://127.0.0.1:${port}`;
+    const entry = path.join(stage, "backend/dist/authoritiesStandalone.js");
+    child = spawn(process.execPath, [entry], { cwd: root, stdio: ["ignore", "pipe", "pipe"], env: {
+      ...process.env, PORT: String(port), LEGAL_STRUCTURE_NATIVE: nativeFile,
+      AUTHORITIES_BUILD_ID: createHash("sha256").update(await readFile(entry)).digest("hex"),
+      MIKE_A2AJ_BULK_DB: databasePath, MIKE_CITATOR_DB: path.join(stage, "no-citator.sqlite"),
+    } });
+    child.stdout.on("data", (chunk) => { serverLog += chunk; });
+    child.stderr.on("data", (chunk) => { serverLog += chunk; });
+    let healthy = false;
+    for (let attempt = 0; attempt < 100; attempt++) {
+      if (child.exitCode !== null) throw new Error(`Standalone exited: ${serverLog}`);
+      try { healthy = (await fetch(`${origin}/health`)).ok; } catch { /* start-up */ }
+      if (healthy) break;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    assert(healthy, "Standalone health endpoint did not start");
+    pageUrl = `${origin}/authorities.html`;
   }
-  assert(healthy, "Standalone health endpoint did not start");
   browser = await chromium.launch({ headless: true,
     ...(process.env.AUTHORITIES_CHROMIUM ? { executablePath: process.env.AUTHORITIES_CHROMIUM } : {}) });
   const context = await browser.newContext({ viewport: { width: 1280, height: 1000 }, acceptDownloads: true });
@@ -121,7 +133,7 @@ try {
   page.setDefaultTimeout(30_000);
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  await page.goto(`${origin}/authorities.html`);
+  await page.goto(pageUrl);
   await selectFile(page.getByRole("button", { name: "Add file", exact: true }), docx);
   const options = page.getByRole("dialog", { name: "Import options" });
   await expect(options).toBeVisible(); await screenshot("01-import-options");
