@@ -8,7 +8,7 @@ execFileSync('wasm-bindgen',['--target','web','--no-typescript','--out-name','le
 fs.renameSync(path.join(folder,'vendor','legal-structure_bg.wasm'),path.join(folder,'vendor','legal-structure.wasm'));
 const read=p=>fs.readFileSync(path.join(root,p),'utf8'),write=(p,s)=>fs.writeFileSync(path.join(folder,p),s);
 write('vendor/pdf-annotations.mjs',read('vendor/beaver/shared/pdf-annotations.mjs'));
-let writer=read('vendor/beaver/backend/src/lib/authoritiesAnnotations.ts');const writerStart=writer.indexOf('export function writeAuthorityAnnotations');
+let writer=read('vendor/beaver/backend/src/lib/authoritiesAnnotations.ts').replaceAll('\r\n','\n');const writerStart=writer.indexOf('export function writeAuthorityAnnotations');
 if(writerStart<0)throw new Error('Pinned Beaver annotation export is missing.');writer=writer.slice(writerStart);
 // Highlights carry no author or comment text: Beaver's writer copied the whole quote into /Contents under author "Beaver".
 const patchWriter=(from,to)=>{if(!writer.includes(from))throw new Error(`Pinned Beaver annotation writer changed: ${from}`);writer=writer.replace(from,to);};
