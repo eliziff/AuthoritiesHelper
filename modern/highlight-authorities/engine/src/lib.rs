@@ -1,6 +1,5 @@
 // The same small ABI as Legal Pinpointer; all legal analysis stays in legal-structure.
-use legal_structure::{citation_lookup_key, citation_occurrences_in_text,
-    provider_citations_in_text, provider_text_document_structure, ProviderTextInput};
+use legal_structure::{provider_text_document_structure, ProviderTextInput};
 use serde_json::{json, Value};
 use std::{cell::RefCell, slice};
 thread_local! { static OUTPUT: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) }; }
@@ -8,15 +7,10 @@ fn run(bytes: &[u8]) -> Result<Value, String> {
     if bytes.len() > 24_000_000 { return Err("Document is too large for this browser operation".into()); }
     let input: Value = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
     match input["op"].as_str() {
-        Some("citations") => {
-            let text = input["text"].as_str().ok_or("Missing citation text")?;
-            let matches: Vec<Value> = provider_citations_in_text(text).into_iter().map(|hit| {
-                let key = citation_lookup_key(hit.text);
-                let mut value = serde_json::to_value(hit).unwrap();
-                value["key"] = json!(key); value
-            }).collect();
-            Ok(json!({"ok": true, "offset_unit":"utf16", "matches": matches,
-                "occurrences": citation_occurrences_in_text(text)}))
+        Some("citation") => {
+            let method = input["method"].as_str().ok_or("Missing citation method")?;
+            let result = legal_structure::citations::api::call_value(method, input["request"].clone()).map_err(|error| error.to_string())?;
+            Ok(json!({"ok": true, "offset_unit": "utf16", "result": result}))
         }
         Some("structure") => {
             let source: ProviderTextInput = serde_json::from_value(input["input"].clone()).map_err(|e| e.to_string())?;

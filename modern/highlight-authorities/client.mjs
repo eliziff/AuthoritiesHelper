@@ -1,19 +1,19 @@
-import '../vendor/pinpointer/canlii-courts.js';
-import '../vendor/pinpointer/core.js';
+import { citationCall, extractCitations } from './engine.mjs';
 import { key } from './domain.mjs';
 import { acquirePdf, readBounded, LIMITS } from './network.mjs';
 import { textAsset } from './assets.mjs';
-const core = globalThis.LegalPinpointerCore;
 export const DEFAULT_SERVICE_URL = 'https://quiet-wildflower-ab0d.eliziffprofessional.workers.dev/';
 let aliases;
-export function aliasTarget(citation) {
+export function aliasTarget(citation, engine) {
   if (!aliases) aliases = new Map(textAsset('caseAliases').split(/\r?\n/).filter(l => l && !l.startsWith('#')).map(l => l.split('\t')));
-  return aliases.get(core.citationKey(citation));
+  return aliases.get(key(citation, engine));
 }
-export function canliiPdf(citation) {
-  const target = aliasTarget(citation);
-  const page = core.canliiUrlForCitation(citation) || (target ? core.canliiUrlForAliasTarget(target) : null);
-  return page ? page.replace(/\.html(?:#.*)?$/, '.pdf') : null;
+export function canliiPdf(citation, engine) {
+  const request = target => citationCall(engine, 'canliiAliasTarget', { target, pdf: true });
+  const page = request(citation);
+  if (page) return page;
+  const target = aliasTarget(citation, engine);
+  return target ? request(target) : null;
 }
 export function serviceURL(raw, path = '/health') {
   const url = new URL(raw);
@@ -43,14 +43,13 @@ async function lookupCase(citation, signal) {
   return json(r);
 }
 export async function resolveRecord(record, engine, signal) {
-  const alternate = aliasTarget(record.citation);
+  const alternate = aliasTarget(record.citation, engine);
   const candidates=[record.citation];
   if(alternate&&/^\d{4}\s/.test(alternate))candidates.push(alternate);
-  const accepted=new Set(candidates.map(key));let found;
+  const accepted=new Set(candidates.map(citation => key(citation, engine)).filter(Boolean));let found;
   const exact = rows => (Array.isArray(rows)?rows:[]).filter(row=>['citation_en','citation2_en','citation_fr','citation2_fr'].some(field=>{
     const text=row[field];if(!text)return false;
-    if(accepted.has(key(text)))return true;
-    return engine({op:'citations',text}).matches.some(m=>accepted.has(key(m.text)));
+    return extractCitations(engine,text).some(c=>c.form==='full' && c.authority==='case' && c.key && accepted.has(c.key));
   }));
   for(const citation of candidates){
     const result=await lookupCase(citation,signal);
@@ -58,7 +57,7 @@ export async function resolveRecord(record, engine, signal) {
     if(rows.length>1)throw new Error('A2AJ returned multiple exact records. Select the correct original PDF manually.');
   }
   if(!found)return null;
-  const ownCites=['citation_en','citation2_en','citation_fr','citation2_fr'].flatMap(field=>found[field]?engine({op:'citations',text:found[field]}).matches.map(m=>m.text):[]);
+  const ownCites=['citation_en','citation2_en','citation_fr','citation2_fr'].flatMap(field=>found[field]?extractCitations(engine,found[field]).filter(c=>c.form==='full' && c.authority==='case').map(c=>c.span.text):[]);
   const source=found.source_url_en||found.url_en||found.source_url_fr||found.url_fr;
   if(!source)return null;
   let url;try{url=new URL(source);}catch{throw new Error('A2AJ did not provide a valid publisher URL.');}

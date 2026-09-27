@@ -1,6 +1,8 @@
 // The ABI is shared with Legal Pinpointer. Copy the output before the next WASM call.
+import initStructure from './vendor/legal-structure.js';
+
 export async function createEngine(bytes) {
-  const { instance } = await WebAssembly.instantiate(bytes, {}), e = instance.exports;
+  const e = await initStructure({ module_or_path: bytes });
   const encoder = new TextEncoder(), decoder = new TextDecoder();
   return input => {
     const data = encoder.encode(JSON.stringify(input));
@@ -15,4 +17,12 @@ export async function createEngine(bytes) {
       return value;
     } finally { e.legal_structure_dealloc(pointer, data.length); }
   };
+}
+
+export function citationCall(engine, method, request) {
+  return engine({ op: 'citation', method, request }).result;
+}
+
+export function extractCitations(engine, text) {
+  return citationCall(engine, 'extract', { text, offsetUnit: 'utf16', options: { resolve: false, parallel: false } }).citations;
 }

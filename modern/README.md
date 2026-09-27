@@ -1,8 +1,7 @@
 # Modern standalone Authorities
 
 This directory owns the local loopback deployment, launcher, packaging, and
-standalone browser checks for Beaver's shared TypeScript Authorities core. The
-Python application remains available at the repository root.
+standalone browser checks for Beaver's shared TypeScript Authorities core.
 
 When this repository is checked out as Beaver's `AuthoritiesHelper` submodule,
 run from the Beaver root:

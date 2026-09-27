@@ -1,41 +1,35 @@
 // MIT. Citation recognition and structural boundaries belong to the shared Rust engine.
-export const key = text => String(text || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+import { citationCall, extractCitations } from './engine.mjs';
+export const key = (text, engine) => citationCall(engine, 'keyForText', { text: String(text || '') }).key;
 export const targetLabel = t => `${t.kind === 'page' ? 'Page' : 'Para'} ${t.value}${t.item ? ` · item ${t.item}` : ''}`;
-export function expandLocator(text) {
-  const range = /^\s*(\d+)\s*[-–—]\s*(\d+)\s*$/.exec(text);
-  if (range) {
-    const a = +range[1], b = +range[2];
+export function expandLocator({ first, last }) {
+  if (last && /^\d+$/.test(first) && /^\d+$/.test(last)) {
+    const a = +first, b = +last;
     if (a > b || b - a > 500) throw new Error('Pinpoint range is reversed or too large.');
     return Array.from({ length: b - a + 1 }, (_, i) => String(a + i));
   }
-  return /^\d+[a-z]?$/i.test(text.trim()) ? [text.trim()] : [];
+  return !last && /^\d+[a-z]?$/i.test(first) ? [first] : [];
 }
 export function parseInstructions(text, engine) {
   if (text.length > 150_000) throw new Error('Paste no more than 150,000 characters at once.');
-  const parsed = engine({ op: 'citations', text }), records = new Map();
-  const occurrences = parsed.occurrences.filter(o => o.kind === 'case');
+  const records = new Map();
+  const occurrences = extractCitations(engine, text).filter(o => o.form === 'full' && o.authority === 'case');
   for (let i = 0; i < occurrences.length; i++) {
     const occurrence = occurrences[i];
-    const hit = parsed.matches.find(m => m.start === occurrence.coreCitation.start && m.end === occurrence.coreCitation.end);
-    if (!hit) continue;
-    const id = hit.key || key(hit.text);
-    const before = text.slice(Math.max(text.lastIndexOf('\n', hit.start - 1) + 1, i ? occurrences[i-1].end : 0), hit.start).trim();
+    const hit = occurrence.span;
+    const id = occurrence.key || `unresolved:${hit.start}:${hit.end}`;
+    const before = text.slice(Math.max(text.lastIndexOf('\n', hit.start - 1) + 1, i ? occurrences[i-1].fullSpan.end : 0), hit.start).trim();
     const related = /\b(adopting|citing|following|quoting)\s+([^\n]+?),?\s*$/i.exec(before);
-    const style = occurrence.shortForm || related?.[2]?.replace(/,\s*$/, '') || before.replace(/^[\s(]+|[,\s]+$/g, '');
+    const style = occurrence.shortName || related?.[2]?.replace(/,\s*$/, '') || before.replace(/^[\s(]+|[,\s]+$/g, '');
     const name = style && style.length < 180 && !/please|download|highlight/i.test(style) ? style : hit.text;
-    const tail = text.slice(hit.end, Math.min(occurrences[i+1]?.start ?? text.length, text.indexOf('\n', hit.end) === -1 ? text.length : text.indexOf('\n', hit.end)));
-    let pinpoints = occurrence.pinpoints;
-    // A narrowly scoped typo adapter, after Rust has identified the citation itself.
-    if (!pinpoints.length) {
-      const typo = /^\s*,?\s*pars?\.?\s*(\d+(?:\s*[-–]\s*\d+)?)/i.exec(tail);
-      if (typo) pinpoints = [{ kind: 'paragraph', text: typo[1] }];
-    }
+    const tail = text.slice(hit.end, Math.min(occurrences[i+1]?.fullSpan.start ?? text.length, text.indexOf('\n', hit.end) === -1 ? text.length : text.indexOf('\n', hit.end)));
+    const pinpoints = occurrence.pinpoints || [];
     const nested = /\bitem\s+(\d+[a-z]?)\b/i.exec(tail)?.[1];
-    const targets = pinpoints.filter(p => ['paragraph', 'page'].includes(p.kind)).flatMap(p => expandLocator(p.text).map(value => ({ kind: p.kind, value })));
+    const targets = pinpoints.filter(p => ['paragraph', 'page'].includes(p.kind)).flatMap(p => expandLocator(p).map(value => ({ kind: p.kind, value })));
     if (nested && targets.length === 1) targets[0].item = nested;
     const previous = records.get(id);
-    const record = previous || { id, citation: hit.text.trim(), name, aliases: [hit.text.trim()], targets: [], enabled: true,
-      status: 'Ready to find PDF', notes: [], court: hit.court || '', family: hit.family, sourceUrl: null };
+    const record = previous || { id, citation: hit.text.trim(), name, aliases: [hit.text.trim()], targets: [], enabled: Boolean(occurrence.key),
+      status: occurrence.key ? 'Ready to find PDF' : 'Citation identity needs review', notes: [], court: occurrence.court?.text || '', family: occurrence.format, sourceUrl: null };
     for (const target of targets) if (!record.targets.some(t => JSON.stringify(t) === JSON.stringify(target))) record.targets.push(target);
     records.set(id, record);
   }
@@ -92,14 +86,14 @@ export function recentCanliiFiles(files, now = Date.now(), maxAge = 24 * 60 * 60
   return [...best].map(([citation, file]) => ({ citation, file }));
 }
 // Picks, per authority still missing its PDF, the newest recent top-level file named for one of its citations.
-export function pickDownloads(files, records, now = Date.now(), maxAge = 24 * 60 * 60 * 1000) {
+export function pickDownloads(files, records, engine, now = Date.now(), maxAge = 24 * 60 * 60 * 1000) {
   const wanted = new Map();
-  for (const r of records) if (!r.document) for (const c of r.aliases) wanted.set(key(c), r);
+  for (const r of records) if (!r.document) for (const c of r.aliases) { const identity = key(c, engine); if (identity) wanted.set(identity, r); }
   const best = new Map();
   for (const file of files) {
     const match = CANLII_PDF_NAME.exec(file.name);
     if (!match || (file.webkitRelativePath || '').split('/').length > 2 || now - file.lastModified > maxAge) continue;
-    const record = wanted.get(key(match.slice(1, 4).join('')));
+    const record = wanted.get(key(match.slice(1, 4).join(' '), engine));
     if (record && !(best.get(record)?.lastModified >= file.lastModified)) best.set(record, file);
   }
   return [...best].map(([record, file]) => ({ record, file }));

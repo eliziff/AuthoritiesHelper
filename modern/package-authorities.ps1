@@ -84,6 +84,12 @@ Copy-Item -LiteralPath (Join-Path $Repo 'legal-structure\LICENSE') `
     -Destination (Join-Path $licenses 'legal-structure.txt')
 Copy-Item -LiteralPath (Join-Path $Repo 'legal-pdf-parser\LICENSE') `
     -Destination (Join-Path $licenses 'legal-pdf-parser.txt')
+# The installed shared citation package carries its native notices too.
+$CitationPackage = Join-Path $Repo 'backend\node_modules\legal-citations'
+$CitationNotices = Join-Path $licenses 'legal-citations'
+New-Item -ItemType Directory -Path $CitationNotices -Force | Out-Null
+Copy-Item -LiteralPath (Join-Path $CitationPackage 'LICENSE'),
+    (Join-Path $CitationPackage 'NOTICE') -Destination $CitationNotices
 Copy-Item -LiteralPath (Join-Path $Repo 'frontend\node_modules\pdfjs-dist\standard_fonts\LICENSE_FOXIT'),
     (Join-Path $Repo 'frontend\node_modules\pdfjs-dist\standard_fonts\LICENSE_LIBERATION') -Destination $licenses
 Copy-Item -Path (Join-Path $Owner 'scripts\authorities-package\*.cmd'),

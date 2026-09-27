@@ -1,5 +1,5 @@
 import {createEngine} from './engine.mjs';import {bytes} from './assets.mjs';
-import {parseInstructions,key,targetLabel,pickDownloads,recentCanliiFiles} from './domain.mjs';
+import {parseInstructions,key,targetLabel,pickDownloads,recentCanliiFiles,CANLII_PDF_NAME} from './domain.mjs';
 import {canliiPdf,resolveRecord,retrievePdf,download,makeZip,DEFAULT_SERVICE_URL} from './client.mjs';
 import {inspectPdf,verifyIdentity,headerIdentities,attachFindings,exportPdf} from './pdf.mjs';import {makeViewer} from './viewer.mjs';
 const $=id=>document.getElementById(id),records=[];let engine,busy=false,controller,activeRecord;
@@ -18,7 +18,7 @@ function renderRows(){
   const heading=element('div',null,'record-heading'),check=document.createElement('input');check.type='checkbox';check.checked=record.enabled;check.setAttribute('aria-label',`Include ${record.citation}`);check.disabled=busy;check.onchange=()=>record.enabled=check.checked;
   const title=element('div',null,'record-title');title.append(element('strong',record.name),' ',element('span',record.citation,'citation'));heading.append(check,title);
   const targets=element('div',null,'targets');for(const target of record.targets){const found=record.document?.findings.find(f=>JSON.stringify(f.target)===JSON.stringify(target));const mark=record.document?.marks.find(m=>m.label===targetLabel(target));const b=action(targetLabel(target),()=>openRecord(record,mark?.id),!record.document);b.className='target'+(found&&found.status!=='found'?' unresolved':'');targets.append(b);}
-  const links=element('div',null,'row-actions');let pdfLink=canliiPdf(record.citation);if(!pdfLink)for(const c of record.aliases){pdfLink=canliiPdf(c);if(pdfLink)break;}
+  const links=element('div',null,'row-actions');let pdfLink=canliiPdf(record.citation,engine);if(!pdfLink)for(const c of record.aliases){pdfLink=canliiPdf(c,engine);if(pdfLink)break;}
   if(pdfLink){const a=element('a','CanLII PDF ↗','ext-link');a.title='Open on CanLII (new tab)';a.href=pdfLink;a.target='_blank';a.rel='noopener noreferrer';links.append(a);}
   if(record.sourceUrl){const a=element('a','Publisher');a.href=record.sourceUrl;a.target='_blank';a.rel='noopener noreferrer';links.append(a);}
   if(!record.document)links.append(action('Load PDF',()=>{activeRecord=record;$('pdf-files').click();},busy));
@@ -54,16 +54,17 @@ async function find(){
 async function upload(files,explicit){
  if(busy)return;controller=new AbortController();setBusy(true);notice('');
  try{
+  const keyedRecords=records.map(record=>({record,keys:new Set(record.aliases.map(c=>key(c,engine)).filter(Boolean))}));
   for(const file of Array.from(files)){
    if(controller.signal.aborted)break;if(!/\.pdf$/i.test(file.name)){notice(`${file.name}: select a PDF file.`);continue;}
    let record=explicit;
-   if(!record){const name=key(file.name.replace(/(?: \(\d+\))?\.pdf$/i,''));const matches=records.filter(r=>r.aliases.some(c=>name===key(c)));if(matches.length===1)record=matches[0];}
+   if(!record){const filename=CANLII_PDF_NAME.exec(file.name),name=filename?key(filename.slice(1,4).join(' '),engine):null;const matches=name?keyedRecords.filter(r=>r.keys.has(name)).map(r=>r.record):[];if(matches.length===1)record=matches[0];}
    try{
     const data=new Uint8Array(await file.arrayBuffer());
     if(record){if(record.document&&!confirm(`Replace the PDF and highlights for ${record.citation}?`))continue;await bind(record,data,controller.signal);}
     else{
       notice(`Identifying ${file.name}`);const doc=await inspectPdf(data,engine,s=>notice(`${file.name}: ${s}`),controller.signal);
-      const identities=new Set(headerIdentities(doc.pages,engine).map(m=>key(m.text)));const matches=records.filter(r=>r.aliases.some(c=>identities.has(key(c))));
+      const identities=new Set(headerIdentities(doc.pages,engine).map(m=>m.key).filter(Boolean));const matches=keyedRecords.filter(r=>[...r.keys].some(identity=>identities.has(identity))).map(r=>r.record);
       if(matches.length!==1)throw new Error('No unique matching authority. Use Load PDF on its row after checking the citation.');
       record=matches[0];verifyIdentity(doc.pages,record,engine);if(record.document&&!confirm(`Replace ${record.citation} and its highlights?`))continue;attachFindings(doc,record);record.document=doc;setStatus(record,completeStatus(record));renderRows();notice('');
     }
@@ -88,10 +89,11 @@ $('fetch-downloads').onclick=async()=>{if(busy)return;
  const files=[];for await(const entry of dir.values())if(entry.kind==='file'&&/\.pdf$/i.test(entry.name))try{files.push(await entry.getFile());}catch{}
  await addFromFolder(files);};
 $('downloads-folder').onchange=async()=>{const files=Array.from($('downloads-folder').files);$('downloads-folder').value='';await addFromFolder(files);};
-async function addFromFolder(files){const picks=pickDownloads(files,records),picked=new Set(picks.map(p=>p.file));
+async function addFromFolder(files){const picks=pickDownloads(files,records,engine),picked=new Set(picks.map(p=>p.file));
  // Recent CanLII PDFs with no listed authority to bind to become their own entries, citation taken from the filename; bind() still runs the first-page citation check.
- const extras=[];for(const {citation,file} of recentCanliiFiles(files)){if(picked.has(file)||records.some(r=>r.aliases.some(c=>key(c)===key(citation))))continue;
-  let r;try{r=parseInstructions(citation,engine)[0];}catch{}if(r&&!records.some(a=>a.id===r.id)){records.push(r);extras.push({record:r,file});}}
+ const known=new Set(records.flatMap(r=>r.aliases.map(c=>key(c,engine))).filter(Boolean));
+ const extras=[];for(const {citation,file} of recentCanliiFiles(files)){const identity=key(citation,engine);if(picked.has(file)||!identity||known.has(identity))continue;
+  let r;try{r=parseInstructions(citation,engine)[0];}catch{}if(r&&!records.some(a=>a.id===r.id)){records.push(r);known.add(identity);extras.push({record:r,file});}}
  if(extras.length)renderRows();const all=[...picks,...extras];
  if(!all.length)return notice('No PDF downloaded in the last day is named like a CanLII citation (e.g. 2019abqb666.pdf)'+(records.some(r=>!r.document)?' for a missing authority.':'.'));
  for(const {record,file} of all)await upload([file],record);

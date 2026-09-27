@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import path from "node:path";
-import { buildAuthoritiesFrontend, bundleAuthorities } from "./authorities-package/bundle.mjs";
+import { buildAuthoritiesFrontend, bundleAuthorities } from "./scripts/authorities-package/bundle.mjs";
 
 const root = path.resolve(import.meta.dirname, "../..");
 const stage = path.join(import.meta.dirname, ".authorities-dev");

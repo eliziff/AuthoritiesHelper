@@ -1,5 +1,3 @@
-import '../vendor/pinpointer/canlii-courts.js';
-import '../vendor/pinpointer/core.js';
 import { getDocument, GlobalWorkerOptions, Util, OPS } from 'pdfjs-dist/build/pdf.mjs';
 import { PDFDocument } from 'pdf-lib';
 import * as pdfLib from 'pdf-lib';
@@ -7,7 +5,8 @@ import { createSearchablePdf } from '../vendor/ocr-source/pdf-export.js';
 import { cropToPdfTransform } from '../vendor/ocr-source/text-layer.js';
 import { recognizePage } from './ocr.mjs';
 import { assetURL } from './assets.mjs';
-import { findTargets, initialMarks, key } from './domain.mjs';
+import { findTargets, initialMarks } from './domain.mjs';
+import { citationCall, extractCitations } from './engine.mjs';
 import { ANNOTATION_SCHEMA, decodeAnnotationSet } from './vendor/pdf-annotations.mjs';
 import { writeAuthorityAnnotations } from './vendor/annotation-writer.mjs';
 
@@ -131,27 +130,24 @@ export async function inspectPdf(data, engine, progress=()=>{}, signal, expected
 export function headerIdentities(pages,engine){
   const page=pages[0];if(!page)return[];
   let text='';for(const l of page.lines){if(/^\s*(?:\[1\]|1[.)])\s/.test(l.text))break;text+=l.text+'\n';if(text.length>5000)break;}
-  return engine({op:'citations',text}).matches.filter(m=>m.family==='neutral'||m.family==='canlii'||m.family==='reporter');
+  return extractCitations(engine, text)
+    .filter(c => c.form === 'full' && ['neutral', 'can_lii', 'reporter'].includes(c.format))
+    .map(c => ({ ...c.span, key: c.key, family: c.format }));
 }
 // Supreme Court publisher PDFs are the bilingual S.C.R./R.C.S. print: page one opens with a running head such as
 // "[2019] 4 R.C.S. / CANADA c. VAVILOV / 653", which carries no neutral citation. Accept it only when the volume
 // and first page (and the year, when the citation keeps it) equal one of the record's own S.C.R. citations.
-export function scrRunningHead(pages,aliases){
+export function scrRunningHead(pages,citations,engine){
   const head=(pages[0]?.lines||[]).slice(0,6).map(l=>l.text).join(' ');
-  return aliases.some(alias=>{
-    // The parser may keep or drop the bracketed year ("[2019] 4 SCR 653" or "4 SCR 653"); require it only when present.
-    const m=/^(?:\[(\d{4})\]\s*)?(\d+)\s*(?:S\.?\s?C\.?\s?R|R\.?\s?C\.?\s?S)\.?\s+(\d+)$/i.exec(alias.trim());if(!m)return false;
-    return new RegExp(`${m[1]?`\\[${m[1]}\\]\\s*`:'(?:^|\\s|\\])'}${m[2]}\\s*(?:S\\.?\\s?C\\.?\\s?R|R\\.?\\s?C\\.?\\s?S)\\b`,'i').test(head)&&new RegExp(`(?:^|\\s)${m[3]}(?:\\s|$)`).test(head);
-  });
+  return citationCall(engine, 'matchesReporterHeader', { text: head, citations });
 }
 export function verifyIdentity(pages,record,engine){
-  // Reuse Pinpointer's official English/French neutral-court correspondence.
-  const identityKey = value => key(globalThis.LegalPinpointerCore.canliiUrlForCitation(value,'fr') || value);
-  const identities=headerIdentities(pages,engine), accepted=new Set(record.aliases.map(identityKey));
+  const aliases=record.aliases.flatMap(alias=>extractCitations(engine,alias));
+  const identities=headerIdentities(pages,engine), accepted=new Set(aliases.map(c=>c.key).filter(Boolean));
   const own=identities.filter(i=>i.family==='neutral');
   const candidates = own.length ? own.slice(0,1) : identities;
-  if(!own.length&&scrRunningHead(pages,record.aliases))return;
-  if(!candidates.some(i=>accepted.has(identityKey(i.text))))throw new Error(own.length?`Wrong PDF: its opening citation is ${own[0].text}, not ${record.citation}.`:'The opening citation could not be verified. Keep this file unbound and check its first page.');
+  if(!own.length&&scrRunningHead(pages,aliases,engine))return;
+  if(!candidates.some(i=>i.key && accepted.has(i.key)))throw new Error(own.length?`Wrong PDF: its opening citation is ${own[0].text}, not ${record.citation}.`:'The opening citation could not be verified. Keep this file unbound and check its first page.');
 }
 export function attachFindings(document,record){
   document.findings=findTargets(document,record.targets);document.marks=initialMarks(document.findings);document.undo=[];document.redo=[];

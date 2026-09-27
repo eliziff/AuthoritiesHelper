@@ -1,6 +1,12 @@
 import fs from 'node:fs';import path from 'node:path';import {build,transform} from 'esbuild';import crypto from 'node:crypto';
+import {execFileSync} from 'node:child_process';
 const root=path.resolve(import.meta.dirname,'..'),folder=path.join(root,'highlight-authorities'),out=path.join(root,'dist','highlight-authorities');
 fs.mkdirSync(out,{recursive:true});fs.mkdirSync(path.join(folder,'vendor'),{recursive:true});
+const metadata=JSON.parse(execFileSync('cargo',['metadata','--manifest-path',path.join(folder,'engine','Cargo.toml'),'--format-version','1','--offline'],{encoding:'utf8'}));
+const bindgenVersion=metadata.packages.find(pkg=>pkg.name==='wasm-bindgen').version;
+if(execFileSync('wasm-bindgen',['--version'],{encoding:'utf8'}).trim()!==`wasm-bindgen ${bindgenVersion}`)throw new Error(`Install wasm-bindgen-cli ${bindgenVersion} to match the browser engine.`);
+execFileSync('wasm-bindgen',['--target','web','--no-typescript','--out-name','legal-structure','--out-dir',path.join(folder,'vendor'),path.join(metadata.target_directory,'wasm32-unknown-unknown','release','authorities_browser_engine.wasm')],{stdio:'inherit'});
+fs.renameSync(path.join(folder,'vendor','legal-structure_bg.wasm'),path.join(folder,'vendor','legal-structure.wasm'));
 const read=p=>fs.readFileSync(path.join(root,p),'utf8'),write=(p,s)=>fs.writeFileSync(path.join(folder,p),s);
 write('vendor/pdf-annotations.mjs',read('vendor/beaver/shared/pdf-annotations.mjs'));
 let writer=read('vendor/beaver/backend/src/lib/authoritiesAnnotations.ts');const writerStart=writer.indexOf('export function writeAuthorityAnnotations');
@@ -25,5 +31,7 @@ fs.copyFileSync(path.join(folder,'wrangler.jsonc'),path.join(out,'wrangler.jsonc
 const sources={integration:'MIT',ocr:'9ef7e597f5a544c6caaabcc7345e334c697b63dd',pinpointer:read('vendor/pinpointer-revision.txt').trim(),structure:read('vendor/structure-revision.txt').trim(),beaver:read('vendor/beaver-revision.txt').trim(),assets:Object.fromEntries(Object.entries(assets).map(([n,b])=>[n,crypto.createHash('sha256').update(Buffer.from(b,'base64')).digest('hex')]))};
 fs.writeFileSync(path.join(out,'SOURCES.json'),JSON.stringify(sources,null,2));
 for(const file of ['README.md','VALIDATION.md','THIRD_PARTY_NOTICES.md'])if(fs.existsSync(path.join(folder,file)))fs.copyFileSync(path.join(folder,file),path.join(out,file));
+const citationPackage=metadata.packages.find(pkg=>pkg.name==='legal-citations');
+fs.appendFileSync(path.join(out,'THIRD_PARTY_NOTICES.md'),'\n'+fs.readFileSync(path.join(path.dirname(citationPackage.manifest_path),'NOTICE'),'utf8'));
 fs.copyFileSync(path.join(root,'..','LICENSE'),path.join(out,'LICENSE'));
 console.log(`Built ${path.join(out,'Authorities.html')} (${Buffer.byteLength(html)} bytes) plus standalone worker.mjs`);

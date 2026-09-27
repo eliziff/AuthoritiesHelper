@@ -103,6 +103,7 @@ export async function bundleAuthorities(stage) {
   const require = createRequire(path.join(backend, "package.json"));
   const { build } = require("esbuild");
   const output = path.join(stage, "backend", "dist"); mkdirSync(output, { recursive: true });
+  writeFileSync(path.join(output, "package.json"), '{"type":"commonjs"}\n');
   const result = await build({ absWorkingDir: backend, entryPoints: ["src/authoritiesStandalone.ts"],
     outfile: path.join(output, "authoritiesStandalone.js"), bundle: true, platform: "node",
     format: "cjs", target: "node22", minifySyntax: true, minifyWhitespace: true,
@@ -121,7 +122,9 @@ export async function buildAuthoritiesFrontend(stage) {
   const result = await build({ ...loaded.config, root: frontend, configFile: false,
     build: { ...loaded.config.build, outDir: path.join(stage, "frontend", "dist"),
       emptyOutDir: true, rolldownOptions: { ...loaded.config.build?.rolldownOptions,
-        input: { authorities: path.join(frontend, "authorities.html") } } } });
+        input: { authorities: path.join(frontend, "authorities.html") },
+        output: { ...loaded.config.build?.rolldownOptions?.output,
+          strictExecutionOrder: false, codeSplitting: true } } } });
   const outputs = Array.isArray(result) ? result : [result];
   const modules = outputs.flatMap(({ output }) => output.flatMap((item) =>
     item.type === "chunk" ? Object.keys(item.modules) : []));
