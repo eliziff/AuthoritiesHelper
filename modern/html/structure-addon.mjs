@@ -28,6 +28,7 @@ const SIGNATURES = {
   legalSourceViewer: ["document", "primaryKind", "limit"], documentTableCells: ["document"], textLayout: ["text"],
   citationLookupKey: ["text"], citationLookupKeys: ["texts"], providerCitationsInText: ["text"],
   citationEngineCall: ["method", "request"],
+  documentReadingOrder: ["request"],
   citationOccurrencesInText: ["text"], authorityReferencesInText: ["text"],
   caselawCitationLookupKey: ["text"], hasCitationInText: ["text"],
   classifyCitatorExcerpt: ["text"], classifyCitatorExcerpts: ["texts"],
