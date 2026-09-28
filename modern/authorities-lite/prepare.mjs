@@ -1,7 +1,7 @@
 // Developer build step only. End users receive the already bundled HTML and Worker.
 import fs from 'node:fs/promises';import path from 'node:path';import os from 'node:os';import crypto from 'node:crypto';import {execFileSync} from 'node:child_process';
 const root=path.resolve(import.meta.dirname,'..'),vendor=path.join(root,'vendor');
-const sources=[['legal-pinpointer','pinpointer','a722d73c98cd6fd5764e63bca9514dda8e978b1c'],['legal-structure-parser','structure','9629311e71dfb62f5f30638dfde09fcec100325c'],['legal-browser-ocr','ocr-source','b05952bd9b8dd47c93290899c8e3142b266d85c7']];
+const sources=[['legal-pinpointer','pinpointer','788fd39435cba1039dd2674c2e900b072b05f857'],['legal-structure-parser','structure','e6a479ba1c3279f668a789cf3c28ebe39cedccb6'],['legal-browser-ocr','ocr-source','b05952bd9b8dd47c93290899c8e3142b266d85c7']];
 const beaver='545631f324b2c15bcecbd925a6f512cff72857e5';
 async function get(url){const response=await fetch(url,{signal:AbortSignal.timeout(90000)});if(!response.ok)throw new Error(`${response.status}: ${url}`);return new Uint8Array(await response.arrayBuffer());}
 async function unpack(bytes,folder,strip=false){await fs.mkdir(folder,{recursive:true});const temp=await fs.mkdtemp(path.join(os.tmpdir(),'authorities-'));try{const file=path.join(temp,'input.tar.gz');await fs.writeFile(file,bytes);execFileSync('tar',['-xzf',file,...(strip?['--strip-components=1']:[]),'-C',folder],{stdio:'inherit'});}finally{await fs.rm(temp,{recursive:true,force:true});}}

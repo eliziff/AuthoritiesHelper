@@ -34,10 +34,10 @@ const html=read('authorities-lite/index.html').replace('<!--STYLES-->',()=>style
 fs.writeFileSync(path.join(out,'Authorities-lite.html'),html);
 await build({entryPoints:[path.join(folder,'worker.mjs')],bundle:true,format:'esm',platform:'browser',target:'es2022',outfile:path.join(out,'worker.mjs'),legalComments:'inline'});
 fs.copyFileSync(path.join(folder,'wrangler.jsonc'),path.join(out,'wrangler.jsonc'));
-const sources={integration:'MIT',ocr:'9ef7e597f5a544c6caaabcc7345e334c697b63dd',pinpointer:read('vendor/pinpointer-revision.txt').trim(),structure:read('vendor/structure-revision.txt').trim(),beaver:read('vendor/beaver-revision.txt').trim(),assets:Object.fromEntries(Object.entries(assets).map(([n,b])=>[n,crypto.createHash('sha256').update(Buffer.from(b,'base64')).digest('hex')]))};
+const citationPackage=metadata.packages.find(pkg=>pkg.name==='legal-citations');
+const sources={integration:'MIT',ocr:read('vendor/ocr-source-revision.txt').trim(),pinpointer:read('vendor/pinpointer-revision.txt').trim(),structure:read('vendor/structure-revision.txt').trim(),citations:citationPackage.source.split('#').at(-1),beaver:read('vendor/beaver-revision.txt').trim(),assets:Object.fromEntries(Object.entries(assets).map(([n,b])=>[n,crypto.createHash('sha256').update(Buffer.from(b,'base64')).digest('hex')]))};
 fs.writeFileSync(path.join(out,'SOURCES.json'),JSON.stringify(sources,null,2));
 for(const file of ['README.md','VALIDATION.md','THIRD_PARTY_NOTICES.md'])if(fs.existsSync(path.join(folder,file)))fs.copyFileSync(path.join(folder,file),path.join(out,file));
-const citationPackage=metadata.packages.find(pkg=>pkg.name==='legal-citations');
 fs.appendFileSync(path.join(out,'THIRD_PARTY_NOTICES.md'),'\n'+fs.readFileSync(path.join(path.dirname(citationPackage.manifest_path),'NOTICE'),'utf8'));
 fs.copyFileSync(path.join(root,'..','LICENSE'),path.join(out,'LICENSE'));
 console.log(`Built ${path.join(out,'Authorities-lite.html')} (${Buffer.byteLength(html)} bytes) plus standalone worker.mjs`);
