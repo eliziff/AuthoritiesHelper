@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
@@ -129,6 +129,8 @@ export async function buildAuthoritiesFrontend(stage) {
   const modules = outputs.flatMap(({ output }) => output.flatMap((item) =>
     item.type === "chunk" ? Object.keys(item.modules) : []));
   assertStandaloneFrontendModules(modules);
+  cpSync(path.join(path.dirname(require.resolve("pdfjs-dist/package.json")), "standard_fonts"),
+    path.join(stage, "frontend", "dist", "pdfjs-standard-fonts"), { recursive: true });
   writeThirdPartyNotices(stage, modules, frontend, "frontend-npm");
 }
 
