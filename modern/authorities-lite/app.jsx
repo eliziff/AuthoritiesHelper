@@ -4,6 +4,7 @@ import {createEngine} from './engine.mjs';import {bytes} from './assets.mjs';
 import {parseInstructions,key,targetLabel,pickDownloads,canliiFiles,CANLII_PDF_NAME} from './domain.mjs';
 import {canliiPdf,resolveRecord,retrievePdf,download,makeZip,DEFAULT_SERVICE_URL} from './client.mjs';
 import {inspectPdf,verifyIdentity,headerIdentities,attachFindings,exportPdf} from './pdf.mjs';import {makeViewer} from './viewer.mjs';
+import {PdfPageNavigation} from '../vendor/beaver/frontend/src/app/components/shared/views/PdfPageNavigation.tsx';
 
 // Application state lives outside React so long-running work mutates it directly; emit() re-renders.
 const records=[],listeners=new Set();let version=0,engine,busy=false,controller,activeRecord,working=null,message='Loading the local parser…',paste='';
@@ -13,7 +14,7 @@ const settings=()=>({url:DEFAULT_SERVICE_URL});
 const filename=r=>r.citation.replace(/[^a-z0-9 ()[\]._-]/gi,'-')+'-highlighted.pdf';
 let viewer;
 function setStatus(record,status,failed=false){record.status=status;record.failed=failed;emit();}
-function completeStatus(record){const n=record.document.findings.filter(f=>f.status==='found').length,total=record.targets.length;return total?`${n} of ${total} requested passages located${n<total?' · review needed':''}`:'PDF ready · add highlights in review';}
+function completeStatus(record){delete record.verificationRequired;delete record.verificationUrl;const n=record.document.findings.filter(f=>f.status==='found').length,total=record.targets.length;return total?`${n} of ${total} requested passages located${n<total?' · review needed':''}`:'PDF ready · add highlights in review';}
 function setBusy(value){busy=value;emit();}
 let pickPdfs=()=>{},pickFolder=()=>{};
 async function parse(){
@@ -25,15 +26,20 @@ async function parse(){
 async function bind(record,data,signal){
  const doc=await inspectPdf(data,engine,s=>setStatus(record,s),signal,record);attachFindings(doc,record,engine);record.document=doc;setStatus(record,completeStatus(record));
 }
-async function find(){
- if(busy)return;controller=new AbortController();setBusy(true);notice('');
+async function find(target=null){
+ if(busy||target?.document)return;controller=new AbortController();setBusy(true);notice('');
+ const blockedPublishers=new Map();
  try{
-  for(const r of records.filter(r=>r.enabled&&!r.document)){
+  for(const r of target?[target]:records.filter(r=>r.enabled&&!r.document)){
    if(controller.signal.aborted)break;
-   working=r;try{setStatus(r,'Looking up source');const resolved=await resolveRecord(r,engine,controller.signal);
-    if(!resolved){setStatus(r,'No A2AJ original located · load PDF',true);continue;}
+   working=r;try{delete r.verificationRequired;delete r.verificationUrl;
+    if(!r.sourceUrl){setStatus(r,'Looking up source');if(!await resolveRecord(r,engine,controller.signal)){setStatus(r,'No A2AJ original located · load PDF',true);continue;}}
+    const blocked=blockedPublishers.get(new URL(r.sourceUrl).origin);
+    if(blocked)throw Object.assign(new Error('Publisher verification is needed before downloading.'),{code:'verification_required',verificationUrl:blocked.verificationUrl});
     setStatus(r,'Connecting to publisher');const data=await retrievePdf(r.sourceUrl,settings(),s=>setStatus(r,s),controller.signal);await bind(r,data,controller.signal);
-   }catch(error){setStatus(r,controller.signal.aborted?'Cancelled':error.message,true);}
+   }catch(error){r.verificationRequired=error.code==='verification_required';r.verificationUrl=r.verificationRequired?error.verificationUrl||null:null;
+    if(r.verificationRequired&&r.sourceUrl)blockedPublishers.set(new URL(r.sourceUrl).origin,{verificationUrl:r.verificationUrl});
+    setStatus(r,controller.signal.aborted?'Cancelled':r.verificationRequired?'Publisher verification is needed. Open it, then retry download.':error.message,true);}
   }
  }finally{working=null;controller=null;setBusy(false);}
 }
@@ -58,7 +64,7 @@ async function upload(files,explicit){
   }
  }finally{working=null;activeRecord=null;controller=null;setBusy(false);}
 }
-async function openRecord(record,mark){if(!record.document)return;activeRecord=record;await viewer.open(record,mark);}
+async function openRecord(record,mark,page){if(!record.document)return;activeRecord=record;await viewer.open(record,mark,page);}
 async function saveRecord(record){notice(`Preparing ${record.citation}`);const data=await exportPdf(record.document);download(data,filename(record));notice('');}
 async function downloadAll(){setBusy(true);try{const files=[];for(const r of records.filter(r=>r.enabled&&r.document)){notice(`Preparing ${r.citation}`);files.push({name:filename(r),data:await exportPdf(r.document)});}download(makeZip(files),'Highlighted-authorities.zip');notice('');}catch(error){notice(error.message);}finally{setBusy(false);}}
 
@@ -107,6 +113,9 @@ const Card=({title,subtitle,actions,children,className})=><section aria-label={t
 const dropProps=(onFiles,setOver)=>({onDragOver:e=>{e.preventDefault();setOver(true);},onDragLeave:()=>setOver(false),onDrop:e=>{e.preventDefault();e.stopPropagation();setOver(false);if(!busy)onFiles(e.dataTransfer.files);}});
 
 const LINK='inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-gray-300 bg-white px-2.5 text-xs font-medium text-gray-800 outline-none hover:bg-gray-50 focus-visible:ring-3 focus-visible:ring-ring/50 [&_svg]:size-3.5';
+function challengeLink(record){
+ try {const url=new URL(record.verificationUrl);return url.protocol==='https:'&&url.origin===new URL(record.sourceUrl).origin&&/^\/robocop\/captcha\/(?:en|fr)\/query\.do$/i.test(url.pathname)?url.href:null;}catch{return null;}
+}
 function state(record){
  if(working===record)return {tone:'busy',label:'Fetching',Icon:Loader2};
  if(record.document)return record.document.findings.some(f=>f.status!=='found')&&record.targets.length?{tone:'ok',label:'PDF ready',Icon:CheckCircle2}:{tone:'ok',label:'PDF ready',Icon:CheckCircle2};
@@ -117,6 +126,7 @@ const TONE={ok:'border-emerald-200 bg-emerald-50 text-emerald-800',warn:'border-
 function Record({record}){
  const [over,setOver]=useState(false);
  const same=record.name===record.citation,st=state(record),ready=!!record.document;
+ const verificationUrl=record.verificationRequired?challengeLink(record):null;
  let pdfLink=canliiPdf(record.citation,engine);if(!pdfLink)for(const c of record.aliases){pdfLink=canliiPdf(c,engine);if(pdfLink)break;}
  return <article className={cx('grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 border-l-4 px-4 py-4',ready?'border-l-emerald-500':'border-l-transparent',over&&'bg-red-50')} {...dropProps(files=>upload(files,record),setOver)}>
   <label className="inline-flex min-h-6 items-start pt-0.5"><input type="checkbox" className="size-[18px] cursor-pointer accent-gray-950 disabled:opacity-50" checked={record.enabled} disabled={busy} aria-label={`Include ${record.citation}`} onChange={e=>{record.enabled=e.target.checked;emit();}}/></label>
@@ -127,7 +137,7 @@ function Record({record}){
    </div>
    {!!record.targets.length&&<div className="mt-2 flex flex-wrap gap-1.5">{record.targets.map((target,i)=>{
     const found=record.document?.findings.find(f=>JSON.stringify(f.target)===JSON.stringify(target));const mark=record.document?.marks.find(m=>m.label===targetLabel(target));const missing=found&&found.status!=='found';
-    return <button key={i} type="button" disabled={!ready} title={ready?(missing?'Not located · open to highlight it yourself':'Located · open at this passage'):'Available once the PDF is loaded'} onClick={()=>openRecord(record,mark?.id).catch(e=>notice(e.message))}
+    return <button key={i} type="button" disabled={!ready} title={ready?(found?.pdfPage?`Open PDF ${found.pdfPage} to highlight it yourself`:missing?'Not located · open to highlight it yourself':'Located · open at this passage'):'Available once the PDF is loaded'} onClick={()=>openRecord(record,mark?.id,found?.pdfPage).catch(e=>notice(e.message))}
      className={cx('inline-flex h-7 items-center gap-1 rounded-md border px-2 text-xs font-medium outline-none focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-default [&_svg]:size-3.5',
       !ready?'border-gray-200 bg-gray-50 text-gray-600':missing?'border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100':'border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100')}>
      {ready&&(missing?<AlertTriangle aria-hidden="true"/>:<Highlighter aria-hidden="true"/>)}{targetLabel(target)}</button>;})}</div>}
@@ -135,9 +145,10 @@ function Record({record}){
    <div className="mt-3 flex flex-wrap items-center gap-2">
     {ready?<><Button size="compact" onClick={()=>openRecord(record).catch(e=>notice(e.message))}><Eye/>Review</Button>
       <Button size="compact" variant="outline" disabled={busy} onClick={()=>saveRecord(record).catch(e=>notice(e.message))}><Download/>Download</Button></>
-     :<Button size="compact" variant="outline" disabled={busy} onClick={()=>{activeRecord=record;pickPdfs();}}><FilePlus2/>Load PDF</Button>}
+     :<Button size="compact" variant="outline" disabled={busy} onClick={()=>{activeRecord=record;pickPdfs();}}><FilePlus2/>Upload</Button>}
     {pdfLink&&<a href={pdfLink} target="_blank" rel="noopener noreferrer" title="Open this decision's PDF on CanLII in a new tab" className={LINK}><FileText aria-hidden="true"/>CanLII PDF<ExternalLink aria-hidden="true" className="text-gray-500"/></a>}
-    {!pdfLink&&record.sourceUrl&&<a href={record.sourceUrl} target="_blank" rel="noopener noreferrer" title="Open this decision on the publisher's site in a new tab" className={LINK}><Globe aria-hidden="true"/>Source<ExternalLink aria-hidden="true" className="text-gray-500"/></a>}
+    {(!pdfLink||record.verificationRequired)&&record.sourceUrl&&<a href={verificationUrl||record.sourceUrl} target="_blank" rel="noopener noreferrer" title={verificationUrl?'Open the publisher verification page in a new tab':"Open this decision on the publisher's site in a new tab"} className={LINK}><Globe aria-hidden="true"/>{verificationUrl?'Solve CAPTCHA':record.verificationRequired?'Open publisher':'Source'}<ExternalLink aria-hidden="true" className="text-gray-500"/></a>}
+    {record.verificationRequired&&<Button size="compact" variant="outline" disabled={busy} onClick={()=>find(record)}><Redo2/>Retry download</Button>}
    </div>
   </div>
  </article>;
@@ -147,10 +158,10 @@ function Record({record}){
 function ViewerShell(){
  const tool='inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-gray-300 bg-white px-2.5 text-xs font-medium text-gray-800 outline-none hover:bg-gray-50 focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-4';
  return <section id="viewer" hidden aria-label="PDF highlight review" className="fixed inset-0 z-10 flex flex-col bg-app-background">
-  <div className="flex min-h-14 items-center gap-3 border-b border-gray-200 bg-white px-4 py-2 sm:px-6">
+  <div className="flex min-h-14 flex-wrap items-center gap-3 border-b border-gray-200 bg-white px-4 py-2 sm:px-6">
    <button id="close-viewer" type="button" className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md px-2 text-sm font-medium text-gray-700 outline-none hover:bg-gray-100 focus-visible:ring-3 focus-visible:ring-ring/50"><ArrowLeft className="size-4" aria-hidden="true"/><span className="hidden sm:inline">Authorities-lite</span></button>
    <div className="min-w-0 flex-1"><h2 id="viewer-title" className="truncate text-lg font-medium leading-tight text-gray-900"></h2><p id="viewer-citation" className="truncate text-sm text-gray-600"></p></div>
-   <label className="hidden items-center gap-1.5 whitespace-nowrap text-sm text-gray-600 md:flex">Page<input id="page-number" type="number" min="1" defaultValue="1" aria-label="Go to page" className="h-8 w-16 rounded-md border border-gray-300 bg-white px-2 text-right text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"/><span id="page-count"></span></label>
+   <div id="viewer-pagination" className="order-3 w-full sm:order-none sm:w-auto"></div>
    <button id="viewer-download" type="button" className={cx(BUTTON,VARIANT.default,SIZE.default)}><Download/>Download PDF</button>
   </div>
   <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_15rem] md:grid-cols-[minmax(0,1fr)_20rem]">
@@ -194,7 +205,7 @@ function App(){
   <main className="mx-auto grid w-full max-w-6xl items-start gap-4 px-4 pb-8 sm:px-6 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
    <div className="grid gap-3">
     <Card title="Paste a list of citations" actions={busy?<Button variant="outline" onClick={()=>controller?.abort()}><X/>Cancel</Button>
-      :<Button disabled={!records.length} onClick={find}><Search/>Find PDFs & highlight</Button>}>
+      :<Button disabled={!records.length} onClick={()=>find()}><Search/>Find PDFs & highlight</Button>}>
      <div className="grid gap-3 p-4">
       <textarea value={text} disabled={busy} aria-label="List of citations" placeholder="Paste a list of citations…" onChange={e=>onPaste(e.target.value)}
        className="min-h-72 w-full resize-y rounded-md border border-gray-300 bg-white px-3 py-2.5 text-[0.94rem] leading-relaxed text-gray-950 outline-none placeholder:text-gray-500 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-60"/>
@@ -217,7 +228,10 @@ function App(){
  </div>;
 }
 
-flushSync(()=>createRoot(document.getElementById('viewer-root')).render(<ViewerShell/>));viewer=makeViewer(document.getElementById('viewer'),emit);
+flushSync(()=>createRoot(document.getElementById('viewer-root')).render(<ViewerShell/>));
+const pagination=createRoot(document.getElementById('viewer-pagination'));
+viewer=makeViewer(document.getElementById('viewer'),emit,({page,count,labels})=>pagination.render(
+ <PdfPageNavigation page={page} count={count} labels={labels} disabled={false} onNavigate={number=>viewer.goToPage(number)}/>));
 window.addEventListener('dragover',e=>e.preventDefault());window.addEventListener('drop',e=>e.preventDefault());
 document.getElementById('viewer-download').onclick=()=>activeRecord&&saveRecord(activeRecord).catch(e=>notice(e.message));
 createRoot(document.getElementById('root')).render(<App/>);

@@ -30,12 +30,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
+      - uses: actions/checkout@v4
       - name: Check out Beaver, its engine pins and this adapter
         run: |
+          beaver_sha=$(cat modern/beaver-revision.txt)
+          test "$beaver_sha" != ""
           git init beaver && cd beaver
           git remote add origin https://github.com/eliziff/Beaver.git
-          git fetch --depth=1 origin main
+          git fetch --depth=1 origin "$beaver_sha"
           git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$beaver_sha"
           for module in legal-structure legal-pdf-parser; do
             url=$(git config -f .gitmodules submodule.$module.url)
             sha=$(git ls-tree HEAD "$module" | awk '{print $3}')
