@@ -4,7 +4,7 @@ This Authorities integration is MIT-licensed, Copyright (c) 2026 Elias Ziff; the
 
 ## Reused components
 
-- **Beaver**, eliziff/Beaver, revision `545631f324b2c15bcecbd925a6f512cff72857e5`: the reused files are the author's (Elias Ziff's) own code and are included here under MIT. The pinned files supply PDF annotation and page-binding/navigation logic, CanLII URLs, A2AJ metadata and the provider PDF bridge. The publisher helper has separate source provenance below.
+- **Beaver**, eliziff/Beaver, revision `17c2300c4b0a238fbcded210c2b0206a117ce2ff`: the reused files are the author's (Elias Ziff's) own code and are included here under MIT. The pinned files supply PDF annotation and page-binding/navigation logic, CanLII URLs, A2AJ metadata and the provider PDF bridge. The publisher helper has separate source provenance below.
 - **Legal Browser OCR**, eliziff/legal-browser-ocr, source revision `83122a28fc4901ea275a4aa165340917f9c2b85c`: MIT source; runtime/model components retain their own licenses. Its quality inference worker, preprocessing, layout, line ordering and searchable PDF export are reused, not reimplemented. The v0.1.4 runtime archive is checksum-verified by `prepare.mjs`.
 - **Legal Structure Parser**, revision `1f51f94c4a93e4902d8cd8a78eb321a9607418e1`: MIT. The original Rust parser/grammar compile behind a small browser ABI; citation and structure rules are not replaced.
 - **Common Law Cite**, transitive revision `2610e45fd367a27cebdb32529694726c210fb9ac`: the shared Rust citation engine used by Legal Structure Parser. Its own `NOTICE` is included in the ready-built package.
