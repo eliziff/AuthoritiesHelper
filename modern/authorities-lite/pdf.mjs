@@ -92,20 +92,29 @@ export function assembleText(pages) {
   }
   return {text,lines};
 }
-export async function inspectPdf(data, engine, progress=()=>{}, signal, expectedRecord) {
+// Folder discovery reads at most two native-text pages and never renders or recognizes.
+export async function inspectOpening(data) {
+  const pdf=await openPdf(data),pages=[];
+  try {if(pdf.numPages>2000)throw new Error('PDF exceeds the 2,000-page limit.');for(let n=1;n<=Math.min(2,pdf.numPages);n++){
+    const page=await pdf.getPage(n),viewport=page.getViewport({scale:1});
+    pages.push({number:n,width:viewport.width,height:viewport.height,lines:nativeLines(await page.getTextContent(),viewport,n),ocr:false});
+    page.cleanup();
+  }return {pdf,pages};}catch(error){await pdf.destroy();throw error;}
+}
+export async function inspectPdf(data, engine, progress=()=>{}, signal, expectedRecord, options={}) {
   if(data.byteLength>100*1024*1024)throw new Error('PDF exceeds the 100 MiB limit.');
-  const pdf=await openPdf(data), pages=[], ocrPages=[];
+  const pdf=options.prepared?.pdf||await openPdf(data), pages=[], ocrPages=[];
   if(pdf.numPages>2000){await pdf.destroy();throw new Error('PDF exceeds the 2,000-page limit.');}
   try {
     for(let n=1;n<=pdf.numPages;n++){
       signal?.throwIfAborted();progress(`Reading page ${n} of ${pdf.numPages}`);
       const page=await pdf.getPage(n),viewport=page.getViewport({scale:1});
-      const native=nativeLines(await page.getTextContent(),viewport,n);let lines=native,ocr=null;
+      const native=options.prepared?.pages[n-1]?.lines||nativeLines(await page.getTextContent(),viewport,n);let lines=native,ocr=null;
       const useful=native.reduce((sum,l)=>sum+(l.text.match(/[\p{L}\p{N}]/gu)?.length||0),0);
       const body=native.filter(l=>l.rect[1]>.1&&l.rect[3]<.9).reduce((sum,l)=>sum+l.text.length,0);
       let hasImage=false;
-      if(body<40&&useful>=60){const ops=await page.getOperatorList();hasImage=ops.fnArray.some(fn=>[OPS.paintImageXObject,OPS.paintInlineImageXObject,OPS.paintImageMaskXObject,OPS.paintImageXObjectRepeat].includes(fn));}
-      if(useful<60||(body<40&&hasImage)){
+      if(options.recognize!==false&&body<40&&useful>=60){const ops=await page.getOperatorList();hasImage=ops.fnArray.some(fn=>[OPS.paintImageXObject,OPS.paintInlineImageXObject,OPS.paintImageMaskXObject,OPS.paintImageXObjectRepeat].includes(fn));}
+      if(options.recognize!==false&&(useful<60||(body<40&&hasImage))){
         const view=await rendered(page);
         try {
           if(hasInk(view.canvas)){
@@ -120,7 +129,7 @@ export async function inspectPdf(data, engine, progress=()=>{}, signal, expected
       }
       pages.push({number:n,width:viewport.width,height:viewport.height,lines,ocr:!!ocr});
       ocrPages.push(ocr||{lines:[],transform:[1,0,0,1,0,0]});page.cleanup();
-      if(n===1&&expectedRecord)verifyIdentity(pages,expectedRecord,engine);
+      if(n===1&&expectedRecord&&options.verify!==false)verifyIdentity(pages,expectedRecord,engine);
       await new Promise(resolve=>setTimeout(resolve,0));
     }
     const starts=expectedRecord?[...new Set(expectedRecord.aliases.flatMap(alias=>extractCitations(engine,alias))

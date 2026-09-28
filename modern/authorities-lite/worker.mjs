@@ -49,7 +49,8 @@ export function createWorker(fetcher = fetch) {
         finish();
         if (controller.signal.aborted) return json({ error: 'Publisher download timed out or was cancelled.', code: 'timeout' }, 504);
         return json({ error: error instanceof SourceError ? error.message : 'The publisher could not be reached.',
-          code: error.code || 'publisher_error', ...(error.verificationUrl ? { verificationUrl: error.verificationUrl } : {}) }, error.status || 502);
+          code: error.code || 'publisher_error', ...(error.verificationUrl ? { verificationUrl: error.verificationUrl } : {}),
+          ...(error.pdfUrl ? { pdfUrl: error.pdfUrl } : {}) }, error.status || 502);
       }
   }
 }

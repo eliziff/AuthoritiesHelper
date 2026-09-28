@@ -69,14 +69,23 @@ try {
   }
   assert.deepEqual(errors,[]);
   await page.locator('#close-viewer').click();
-  for(const citation of ['2021 SCC 1', '[2022] 3 SCR 999']) {
+  for(const citation of ['2021 SCC 1']) {
     await page.getByRole('textbox',{name:'List of citations'}).fill(citation);
     const chooseWrong=page.waitForEvent('filechooser');
     await page.getByRole('button',{name:'Upload',exact:true}).click();
     await (await chooseWrong).setFiles(path.resolve(process.argv[3]));
-    await expect(page.getByRole('status')).toContainText(/Wrong PDF|opening citation could not be verified/);
-    await expect(page.getByRole('button',{name:'Review',exact:true})).toHaveCount(0);
+    await expect(page.getByRole('button',{name:'Review',exact:true})).toHaveCount(1);
+    await expect(page.getByRole('status')).not.toContainText('Wrong PDF');
   }
+  await page.getByRole('textbox',{name:'List of citations'}).fill('2020 SCC 2');
+  await expect(page.getByRole('button',{name:'Review',exact:true})).toHaveCount(0);
+  const chooseUnmatched=page.waitForEvent('filechooser');
+  await page.getByRole('button',{name:/Click or drag to add PDFs/}).click();
+  await (await chooseUnmatched).setFiles({name:'unmatched-upload.pdf',mimeType:'application/pdf',buffer:await fs.readFile(process.argv[3])});
+  await expect(page.getByRole('button',{name:'Review',exact:true})).toHaveCount(1);
+  await expect(page.getByText('unmatched-upload',{exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'Review',exact:true}).click();
+  await expect(page.locator('#page-wrap .pdf-page canvas').first()).toBeVisible();
   console.log('PASS: Lite native viewer, navigation, highlights, undo/redo, annotated export, close/reopen, real PDF worker.');
 } catch(error) {
   await page.screenshot({path:path.resolve(process.argv[4]||'lite-pdf-smoke.png')});

@@ -64,6 +64,7 @@ export async function resolveRecord(record, engine, signal) {
   if(!source)return null;
   let url;try{url=new URL(source);}catch{throw new Error('A2AJ did not provide a valid publisher URL.');}
   if(!['https:','http:'].includes(url.protocol)||url.username||url.password)throw new Error('A2AJ returned an unsupported publisher address.');
+  record.referenceText=[found.unofficial_text_en,found.unofficial_text_fr].filter(Boolean).join("\n");
   record.aliases=[...new Set([...record.aliases,...ownCites])];
   record.name=found.name_en||found.name_fr||record.name;record.sourceUrl=url.href;
   record.sourceMetadata={dataset:found.dataset,citation:found.citation_en||found.citation_fr,upstreamLicense:found.upstream_license||null};
@@ -74,7 +75,7 @@ export async function retrievePdf(source,settings,progress,signal){
   if(settings.url){
     const url=serviceURL(settings.url,'/pdf');url.searchParams.set('source',source);
     response=await reach(url,'the Authorities download service',signal);
-    if(!response.ok){let detail;try{detail=await response.json();}catch{}throw Object.assign(new Error(detail?.error||`Download service returned HTTP ${response.status}.`),{code:detail?.code,verificationUrl:detail?.verificationUrl});}
+    if(!response.ok){let detail;try{detail=await response.json();}catch{}throw Object.assign(new Error(detail?.error||`Download service returned HTTP ${response.status}.`),{code:detail?.code,verificationUrl:detail?.verificationUrl,pdfUrl:detail?.pdfUrl});}
   }else{
     try{const found=await acquirePdf(source,fetch,signal);response=new Response(found.body,{headers:{'Content-Type':'application/pdf',...(found.length?{'Content-Length':found.length}:{})}});}
     catch(error){if(error.code==='verification_required')throw error;throw new Error(`Direct publisher retrieval failed. Configure the PDF service to enable server-side retrieval. ${error.message}`);}
