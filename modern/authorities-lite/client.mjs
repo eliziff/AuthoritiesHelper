@@ -2,7 +2,7 @@ import { citationCall, extractCitations } from './engine.mjs';
 import { key } from './domain.mjs';
 import { acquirePdf, readBounded, LIMITS } from './network.mjs';
 import { textAsset } from './assets.mjs';
-export const DEFAULT_SERVICE_URL = 'https://quiet-wildflower-ab0d.eliziffprofessional.workers.dev/';
+export const DEFAULT_SERVICE_URL = 'https://quiet-wildflower-ab0d.authorities-lite.workers.dev/';
 let aliases;
 export function aliasTarget(citation, engine) {
   if (!aliases) aliases = new Map(textAsset('caseAliases').split(/\r?\n/).filter(l => l && !l.startsWith('#')).map(l => l.split('\t')));
@@ -73,10 +73,10 @@ export async function retrievePdf(source,settings,progress,signal){
   if(settings.url){
     const url=serviceURL(settings.url,'/pdf');url.searchParams.set('source',source);
     response=await reach(url,'the Authorities download service',signal);
-    if(!response.ok){let error;try{error=(await response.json()).error;}catch{}throw new Error(error||`Download service returned HTTP ${response.status}.`);}
+    if(!response.ok){let detail;try{detail=await response.json();}catch{}throw Object.assign(new Error(detail?.error||`Download service returned HTTP ${response.status}.`),{code:detail?.code,verificationUrl:detail?.verificationUrl});}
   }else{
     try{const found=await acquirePdf(source,fetch,signal);response=new Response(found.body,{headers:{'Content-Type':'application/pdf',...(found.length?{'Content-Length':found.length}:{})}});}
-    catch(error){throw new Error(`Direct publisher retrieval failed. Configure the PDF service to enable server-side retrieval. ${error.message}`);}
+    catch(error){if(error.code==='verification_required')throw error;throw new Error(`Direct publisher retrieval failed. Configure the PDF service to enable server-side retrieval. ${error.message}`);}
   }
   const expected=Number(response.headers.get('Content-Length'))||0;
   if(expected>LIMITS.pdf){await response.body?.cancel();throw new Error('PDF exceeds the 100 MiB limit.');}

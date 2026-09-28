@@ -1,17 +1,9 @@
 // MIT. Publisher representation discovery is reused from Beaver.
-import { verifiedDecisiaPdf, rankedPublisherPdfLinks } from './vendor/publisher.mjs';
-
-export const DECISIA_HOSTS = new Set([
-  'coadecisions.ontariocourts.ca', 'decisia.lexum.com', 'decision.tcc-cci.gc.ca',
-  'decisions.cart-crac.gc.ca', 'decisions.chrt-tcdp.gc.ca', 'decisions.citt-tcce.gc.ca',
-  'decisions.cmac-cacm.ca', 'decisions.ct-tc.gc.ca', 'decisions.fca-caf.gc.ca',
-  'decisions.fct-cf.gc.ca', 'decisions.fpslreb-crtespf.gc.ca', 'decisions.psdpt-tpfd.gc.ca',
-  'decisions.scc-csc.ca', 'decisions.sct-trp.ca', 'decisions.sst-tss.gc.ca', 'decisions.tatc.gc.ca',
-  'decisions.courts.ns.ca',
-]);
+import { DECISIA_HOSTS, publisherChallengeUrl, publisherPdfCandidate, verifiedDecisiaPdf, rankedPublisherPdfLinks } from './publisher.mjs';
+export { DECISIA_HOSTS } from './publisher.mjs';
 export const LIMITS = { html: 2_000_000, pdf: 100 * 1024 * 1024, hops: 5, milliseconds: 60_000 };
 export class SourceError extends Error {
-  constructor(message, status = 502, code = 'publisher_error') { super(message); this.status = status; this.code = code; }
+  constructor(message, status = 502, code = 'publisher_error', verificationUrl = null) { super(message); this.status = status; this.code = code; this.verificationUrl = verificationUrl; }
 }
 export function sourceUrl(raw) {
   let url;
@@ -28,6 +20,7 @@ export function sourceUrl(raw) {
   return url;
 }
 const mediaType = response => (response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+const verificationError = url => new SourceError('Automatic download blocked.', 403, 'verification_required', url);
 async function discard(response) { await response.body?.cancel().catch(() => {}); }
 export async function readBounded(response, limit) {
   if (Number(response.headers.get('content-length')) > limit) { await discard(response); throw new SourceError('Publisher response exceeds the size limit.', 413, 'too_large'); }
@@ -55,12 +48,24 @@ async function publisherFetch(url, source, fetcher, signal) {
     const response = await fetcher(url.href, { redirect: 'manual', credentials: 'omit', referrerPolicy: 'no-referrer',
       headers: { Accept: 'application/pdf,text/html,application/xhtml+xml;q=0.9,application/octet-stream;q=0.8' }, signal });
     if (![301, 302, 303, 307, 308].includes(response.status)) {
+      if (['text/html', 'application/xhtml+xml'].includes(mediaType(response))) {
+        const body = await readBounded(response, LIMITS.html);
+        const markup = new TextDecoder().decode(body);
+        const challengeUrl = publisherChallengeUrl(markup, url);
+        if (challengeUrl || response.headers.get('cf-mitigated') === 'challenge')
+          throw verificationError(challengeUrl);
+        const replacement = new Response(body, { status: response.status, headers: response.headers });
+        if (!replacement.ok) throw new SourceError(`Publisher returned HTTP ${response.status}.`, response.status === 404 ? 404 : 502, 'publisher_http');
+        return { response: replacement, url };
+      }
       if (!response.ok) { await discard(response); throw new SourceError(`Publisher returned HTTP ${response.status}.`, response.status === 404 ? 404 : 502, 'publisher_http'); }
       return { response, url };
     }
     const location = response.headers.get('location'); await discard(response);
     if (!location || hop === LIMITS.hops) throw new SourceError('Publisher redirect limit exceeded.', 502, 'redirect_limit');
     url = new URL(location, url);
+    const challengeUrl = publisherChallengeUrl('', url);
+    if (challengeUrl) throw verificationError(challengeUrl);
   }
 }
 // Stream without holding the whole PDF in the Worker; enforce a cap even without Content-Length.
@@ -100,6 +105,15 @@ export async function validatedPdfStream(response, finish = () => {}) {
 }
 export async function acquirePdf(raw, fetcher = fetch, signal, finish = () => {}) {
   const source = sourceUrl(raw);
+  const candidate = publisherPdfCandidate(source);
+  let candidateError;
+  if (candidate) {
+    try {
+      const found = await publisherFetch(new URL(candidate), source, fetcher, signal);
+      return {body: await validatedPdfStream(found.response, finish), url: found.url.href,
+        length: found.response.headers.has('content-encoding') ? null : found.response.headers.get('content-length')};
+    } catch (error) { if (signal?.aborted) throw error; candidateError = error; }
+  }
   const direct = /(?:\/document\.do|\.pdf)$/i.test(source.pathname);
   const first = await publisherFetch(source, source, fetcher, signal);
   if (['application/pdf', 'application/octet-stream', 'binary/octet-stream'].includes(mediaType(first.response))) {
@@ -125,12 +139,16 @@ export async function acquirePdf(raw, fetcher = fetch, signal, finish = () => {}
     } else await discard(inner.response);
   }
   let lastError;
-  for (const candidate of [...new Set(candidates)].slice(0, 4)) {
+  for (const discovered of [...new Set(candidates)].slice(0, 4)) {
+    if (discovered === candidate) {
+      if (candidateError?.code === 'verification_required') throw candidateError;
+      if (candidateError) { lastError = candidateError; continue; }
+    }
     try {
-      const found = await publisherFetch(new URL(candidate), source, fetcher, signal);
+      const found = await publisherFetch(new URL(discovered), source, fetcher, signal);
       return { body: await validatedPdfStream(found.response, finish), url: found.url.href,
         length: found.response.headers.has('content-encoding') ? null : found.response.headers.get('content-length') };
-    } catch (error) { if (signal?.aborted) throw error; lastError = error; }
+    } catch (error) { if (signal?.aborted || error.code === 'verification_required') throw error; lastError = error; }
   }
   throw lastError || new SourceError('No original PDF download control was found at the publisher.', 404, 'pdf_not_found');
 }

@@ -9,6 +9,7 @@ import { findTargets, initialMarks } from './domain.mjs';
 import { citationCall, extractCitations } from './engine.mjs';
 import { ANNOTATION_SCHEMA, decodeAnnotationSet } from './vendor/pdf-annotations.mjs';
 import { writeAuthorityAnnotations } from './vendor/annotation-writer.mjs';
+import { reporterMarginLabels, resolvePdfPagination } from '../vendor/beaver/shared/pdf-page-binding.mjs';
 
 export async function hash(bytes) { return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), b => b.toString(16).padStart(2, '0')).join(''); }
 export const normalize = s => String(s).normalize('NFKC').replace(/\s+/g, ' ').trim();
@@ -121,10 +122,18 @@ export async function inspectPdf(data, engine, progress=()=>{}, signal, expected
       if(n===1&&expectedRecord)verifyIdentity(pages,expectedRecord,engine);
       await new Promise(resolve=>setTimeout(resolve,0));
     }
+    const starts=expectedRecord?[...new Set(expectedRecord.aliases.flatMap(alias=>extractCitations(engine,alias))
+      .filter(c=>c.form==='full'&&c.format==='reporter'&&/^\d+$/u.test(c.fields?.page||''))
+      .map(c=>Number(c.fields.page)))]:[];
+    const observed=reporterMarginLabels(Array(pdf.numPages).fill(null),starts,pages.slice(0,3).map(page=>({
+      pageNumber:page.number,width:page.width,height:page.height,lines:page.lines.map(line=>({text:line.text,words:[],
+        rect:(line.layoutRect||line.rect).map((value,index)=>value*(index%2?page.height:page.width))}))
+    })),(text,page)=>extractCitations(engine,text).some(c=>c.form==='full'&&c.format==='reporter'&&c.fields?.page===page));
+    const pageLabels=resolvePdfPagination(observed,await pdf.getPageLabels()||[],starts).map(binding=>binding.label);
     const assembled=assembleText(pages),sourceSha256=await hash(data);
     progress('Locating requested passages');
     const structure=engine({op:'structure',input:{provider:'pdf',citation:expectedRecord?.citation||'Uploaded PDF',source_kind:'cases',text:assembled.text}});
-    return {data:new Uint8Array(data),pages,ocrPages,sourceSha256,...assembled,nodes:structure.nodes};
+    return {data:new Uint8Array(data),pages,ocrPages,pageLabels,sourceSha256,...assembled,nodes:structure.nodes};
   }finally{await pdf.destroy();}
 }
 export function headerIdentities(pages,engine){
@@ -158,6 +167,6 @@ export async function exportPdf(document){
   if(document.ocrPages.some(p=>p.lines.length))data=await createSearchablePdf({pdfBytes:data,pages:document.ocrPages});
   const output=await PDFDocument.load(data,{updateMetadata:false});
   const set=decodeAnnotationSet({schemaVersion:ANNOTATION_SCHEMA,sourceSha256:document.sourceSha256,marks:document.marks});
-  writeAuthorityAnnotations(pdfLib,output,set,'authorities-html');
+  writeAuthorityAnnotations(pdfLib,output,set,'authorities-html',{author:null,comments:false});
   return output.save({updateFieldAppearances:false});
 }

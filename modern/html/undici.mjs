@@ -19,7 +19,8 @@ async function publisherPdf(url, init) {
     referrerPolicy: "no-referrer" });
   if (!response.ok) {
     const detail = await response.json().catch(() => null);
-    throw new Error(detail?.error ?? `The publisher PDF service could not reach ${url.hostname}.`);
+    throw Object.assign(new Error(detail?.error ?? `The publisher PDF service could not reach ${url.hostname}.`),
+      { code: detail?.code, verificationUrl: detail?.verificationUrl ?? null });
   }
   return response;
 }

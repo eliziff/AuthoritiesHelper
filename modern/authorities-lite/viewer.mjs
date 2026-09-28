@@ -10,9 +10,9 @@ const fromHex = v => [1,3,5].map(i=>parseInt(v.slice(i,i+2),16)/255);
 
 // Continuous-scroll review: every page is laid out at its real size up front, pages near the viewport are
 // rendered (canvas + text layer) and far ones are released, and highlights are painted on all pages.
-export function makeViewer(root, onChange) {
+export function makeViewer(root, onChange, onPageChange) {
   const $ = id => root.querySelector('#'+id);
-  let record, pdf, epoch=0, pages=[], selectedId=null, drawing=false, dragging=null, styling=false, observer, resizeObserver, lastWidth=0;
+  let record, pdf, epoch=0, pages=[], selectedId=null, drawing=false, dragging=null, styling=false, observer, resizeObserver, lastWidth=0, shownPage=0;
   const style = { rgb: DEFAULT_RGB, opacity: DEFAULT_OPACITY };
   function updateHistory(){ $('undo').disabled=!record?.document.undo.length;$('redo').disabled=!record?.document.redo.length; }
   function snapshot(){const d=record.document;d.undo.push(structuredClone(d.marks));if(d.undo.length>40)d.undo.shift();d.redo=[];}
@@ -46,7 +46,9 @@ export function makeViewer(root, onChange) {
       const head=document.createElement('span');head.className='card-head';
       const dot=document.createElement('span');dot.className='card-dot';dot.style.background=hex(mark.rgb);
       const label=document.createElement('strong');label.textContent=mark.label||'Custom highlight';
-      const where=document.createElement('span');where.className='card-page';const nums=[...new Set(mark.fragments.map(f=>f.pageNumber))];where.textContent=nums.length?'p. '+(nums.length>1?nums[0]+'–'+nums.at(-1):nums[0]):'';
+      const where=document.createElement('span');where.className='card-page';const nums=[...new Set(mark.fragments.map(f=>f.pageNumber))];
+      const printed=nums.length===1?record.document.pageLabels?.[nums[0]-1]:null;
+      where.textContent=nums.length?`PDF ${nums.length>1?nums[0]+'–'+nums.at(-1):nums[0]}${printed?` · Printed ${printed}`:''}`:'';
       head.append(dot,label,where);b.append(head);
       if(mark.excerpt){const ex=document.createElement('span');ex.className='card-excerpt';ex.textContent=mark.excerpt;b.append(ex);}
       const del=document.createElement('button');del.className='card-delete';del.textContent='×';del.title='Delete highlight';del.setAttribute('aria-label',`Delete ${mark.label||'highlight'}`);
@@ -97,9 +99,13 @@ export function makeViewer(root, onChange) {
     const box=$('page-scroll').getBoundingClientRect(),mid=box.top+box.height*.35;let n=1;
     for(const p of pages){if(p.el.getBoundingClientRect().top<=mid)n=p.number;else break;}return n;
   }
+  function syncPage(number=currentPage()){
+    if(number===shownPage||!pages.length)return;
+    shownPage=number;onPageChange({page:number,count:pages.length,labels:record.document.pageLabels});
+  }
   function scrollToPage(n,offset=0,smooth=false){const p=pages[n-1];if(!p)return;const scroll=$('page-scroll');
-    const y=p.el.getBoundingClientRect().top-scroll.getBoundingClientRect().top+scroll.scrollTop-16+offset;scroll.scrollTo({top:Math.max(0,y),behavior:'auto'});}
-  $('page-scroll').addEventListener('scroll',()=>{if(pages.length&&document.activeElement!==$('page-number'))$('page-number').value=String(currentPage());},{passive:true});
+    const y=p.el.getBoundingClientRect().top-scroll.getBoundingClientRect().top+scroll.scrollTop-16+offset;scroll.scrollTo({top:Math.max(0,y),behavior:'auto'});syncPage(n);}
+  $('page-scroll').addEventListener('scroll',()=>syncPage(),{passive:true});
   async function jump(id){
     const mark=record.document.marks.find(m=>m.id===id);if(!mark)return;select(id);
     const fragment=mark.fragments[0],p=pages[fragment.pageNumber-1];if(!p)return;
@@ -160,19 +166,17 @@ export function makeViewer(root, onChange) {
   for(const [name,rgb]of SWATCHES){const b=document.createElement('button');b.className='swatch-button';b.type='button';b.title=name;b.setAttribute('aria-label',name);b.dataset.colour=hex(rgb);b.style.background=hex(rgb);
     b.onclick=()=>{restyle(m=>{m.rgb=[...rgb];});commit();};swatches.append(b);}
   for(const [id,from,to]of[['undo','undo','redo'],['redo','redo','undo']])$(id).onclick=()=>{const d=record.document;if(!d[from].length)return;d[to].push(structuredClone(d.marks));d.marks=d[from].pop();if(selectedId&&!d.marks.some(m=>m.id===selectedId))selectedId=null;paint();renderSidebar();updateHistory();onChange(record);};
-  $('page-number').onchange=()=>{const n=Math.max(1,Math.min(pages.length,Number($('page-number').value)||1));$('page-number').value=String(n);scrollToPage(n);};
-  $('page-number').onkeydown=e=>{if(e.key==='Enter')$('page-number').blur();};
-  function teardown(){++epoch;observer?.disconnect();observer=null;resizeObserver?.disconnect();resizeObserver=null;for(const p of pages)release(p);pages=[];$('page-wrap').replaceChildren();}
+  function teardown(){++epoch;observer?.disconnect();observer=null;resizeObserver?.disconnect();resizeObserver=null;for(const p of pages)release(p);pages=[];shownPage=0;$('page-wrap').replaceChildren();}
   $('close-viewer').onclick=async()=>{teardown();root.hidden=true;if(pdf)await pdf.destroy();pdf=null;};
-  return { async open(value,markId){
+  return { async open(value,markId,initialPage){
     teardown();if(pdf)await pdf.destroy();record=value;pdf=null;selectedId=null;styling=false;const run=epoch;
     root.hidden=false;{const same=record.name===record.citation;$('viewer-title').textContent=same?record.citation:record.name;$('viewer-citation').textContent=same?'':record.citation;}$('page-scroll').scrollTop=0;
     const doc=await openPdf(record.document.data);if(run!==epoch){doc.destroy();return;}pdf=doc;
     const sizes=[];for(let i=1;i<=pdf.numPages;i++){const page=await pdf.getPage(i);if(run!==epoch)return;const v=page.getViewport({scale:1});sizes.push({width:v.width,height:v.height});}
-    $('page-number').max=String(pdf.numPages);$('page-number').value='1';$('page-count').textContent=`of ${pdf.numPages}`;
     build(sizes);paint();renderSidebar();updateHistory();
+    syncPage(1);
     resizeObserver=new ResizeObserver(()=>{if(!pages.length||Math.abs($('page-scroll').clientWidth-lastWidth)<2)return;const n=currentPage();layout();for(const p of pages)if(p.rendered){release(p);}observer.disconnect();for(const p of pages)observer.observe(p.el);scrollToPage(n);});
     resizeObserver.observe($('page-scroll'));
-    if(markId)await jump(markId);
-  }, close:()=> $('close-viewer').click() };
+    if(markId)await jump(markId);else if(initialPage)scrollToPage(initialPage);
+  }, goToPage:number=>scrollToPage(number), close:()=> $('close-viewer').click() };
 }
