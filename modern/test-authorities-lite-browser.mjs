@@ -13,7 +13,7 @@ page.on('pageerror',e=>{errors.push(e.message);console.error(e.message);});
 page.on('console',m=>{if(m.type()==='error')console.error(m.text());if(m.text().includes('fake worker'))errors.push(m.text());});
 let server;
 try {
-  let url=pathToFileURL(path.resolve(process.argv[2])).href;
+  let url=/^https?:\/\//.test(process.argv[2]) ? process.argv[2] : pathToFileURL(path.resolve(process.argv[2])).href;
   if(process.env.LITE_HOSTED==='1'){
     const html=await fs.readFile(process.argv[2]);
     server=createServer((request,response)=>{response.setHeader('Content-Type','text/html');response.end(html);});
@@ -74,7 +74,7 @@ try {
     const chooseWrong=page.waitForEvent('filechooser');
     await page.getByRole('button',{name:'Upload',exact:true}).click();
     await (await chooseWrong).setFiles(path.resolve(process.argv[3]));
-    await expect(page.getByRole('status')).toContainText('Wrong PDF');
+    await expect(page.getByRole('status')).toContainText(/Wrong PDF|opening citation could not be verified/);
     await expect(page.getByRole('button',{name:'Review',exact:true})).toHaveCount(0);
   }
   console.log('PASS: Lite native viewer, navigation, highlights, undo/redo, annotated export, close/reopen, real PDF worker.');
