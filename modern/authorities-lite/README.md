@@ -23,25 +23,21 @@ other requests to a challenged publisher pause while other publishers continue.
 
 ## Cloudflare setup
 
-The package's `worker.mjs` is already a single bundled ES module: no npm imports, database, storage, OCR service or model binding is needed.
+The package's `worker.mjs` is already a single bundled ES module: no npm imports, database, storage, OCR service or model binding is needed. The deployed Worker is `quiet-wildflower-ab0d` in the Cloudflare account with the `authorities-lite.workers.dev` subdomain.
 
-1. Create your Cloudflare account and stay on **Workers Free**.
-2. Under **Workers & Pages**, create a basic Worker/template, deploy it, then open **Edit Code**.
-3. Replace the starter script with the complete bundled `worker.mjs` and deploy. The package pins the tested compatibility date `2026-06-24`; set that date under Worker Settings for an identical runtime contract.
-4. The current app uses `https://quiet-wildflower-ab0d.eliziffprofessional.workers.dev/`. Its `wrangler.jsonc` names that same Worker; deploy updates with `npx wrangler deploy --config wrangler.jsonc` from this directory, then check `/health`. If the Worker is replaced, update both its name and `DEFAULT_SERVICE_URL` in `authorities-lite/client.mjs` before rebuilding. End users configure nothing.
+From `modern/authorities-lite`, sign into that account and deploy the checked-in configuration:
+
+```sh
+npx wrangler login --device
+npx wrangler whoami
+npx wrangler deploy --config wrangler.jsonc
+```
+
+Check `https://quiet-wildflower-ab0d.authorities-lite.workers.dev/health`. If deploying to another account or Worker, update its name in `wrangler.jsonc` and `DEFAULT_SERVICE_URL` in `client.mjs` before rebuilding Lite. End users configure nothing.
 
 There is deliberately no application secret. The endpoint is public but narrowly constrained to approved public legal-publisher hosts and paths; a shared secret distributed to browser clients would not be secret. Do not put Cloudflare account credentials or API tokens in the HTML. No account is created, paid plan enabled, or public deployment performed by the repository build.
 
-Alternatively, from the ready-built package directory on the administrator's computer:
-
-```sh
-npx wrangler login
-npx wrangler deploy
-```
-
-End users run no CLI or local server. For Cloudflare Git integration, choose `codex/authorities-html-worker`, build command `npm ci && node authorities/prepare.mjs && node authorities/build-worker.mjs`, and deploy command `npx wrangler deploy --config dist/authorities/wrangler.jsonc`. The Worker-only build does not need Rust and does not host the HTML.
-
-Current official setup: https://developers.cloudflare.com/workers/get-started/dashboard/ .
+End users run no CLI or local server. The Worker-only deployment does not need Rust and does not host the HTML. Cloudflare's current [Wrangler login](https://developers.cloudflare.com/workers/wrangler/commands/general/#login) and [deploy](https://developers.cloudflare.com/workers/wrangler/commands/workers/#deploy) instructions cover the two administrator commands.
 
 ### Cost and limits
 

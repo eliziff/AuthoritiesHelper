@@ -2,7 +2,7 @@ import { citationCall, extractCitations } from './engine.mjs';
 import { key } from './domain.mjs';
 import { acquirePdf, readBounded, LIMITS } from './network.mjs';
 import { textAsset } from './assets.mjs';
-export const DEFAULT_SERVICE_URL = 'https://quiet-wildflower-ab0d.eliziffprofessional.workers.dev/';
+export const DEFAULT_SERVICE_URL = 'https://quiet-wildflower-ab0d.authorities-lite.workers.dev/';
 let aliases;
 export function aliasTarget(citation, engine) {
   if (!aliases) aliases = new Map(textAsset('caseAliases').split(/\r?\n/).filter(l => l && !l.startsWith('#')).map(l => l.split('\t')));
