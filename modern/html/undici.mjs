@@ -6,14 +6,15 @@
 // that the runtime's own redirect handling expects.
 import { DECISIA_HOSTS } from "../../../backend/src/lib/legalSourcePresentation";
 
+import { DEFAULT_SERVICE_URL } from "../provider-pdf-service.mjs";
+
 const DIRECT_HOSTS = new Set(["api.a2aj.ca"]);
-const PUBLISHER_SERVICE = "https://quiet-wildflower-ab0d.eliziffprofessional.workers.dev/";
 const PUBLISHER_HOSTS = new Set([...DECISIA_HOSTS, "www.bccourts.ca", "bccourts.ca"]);
 
 async function publisherPdf(url, init) {
   if ((init.method ?? "GET").toUpperCase() !== "GET")
     throw new Error(`${url.hostname} is only read, never written to.`);
-  const service = new URL("pdf", PUBLISHER_SERVICE);
+  const service = new URL("pdf", DEFAULT_SERVICE_URL);
   service.searchParams.set("source", url.href);
   const response = await globalThis.fetch(service, { signal: init.signal, credentials: "omit",
     referrerPolicy: "no-referrer" });
