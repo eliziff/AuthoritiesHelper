@@ -2,6 +2,7 @@ import { citationCall, extractCitations } from './engine.mjs';
 import { key } from './domain.mjs';
 import { acquirePdf, readBounded, LIMITS } from './network.mjs';
 import { textAsset } from './assets.mjs';
+import { hasPdfEndMarker } from '../vendor/beaver/shared/pdf-integrity.mjs';
 export { DEFAULT_SERVICE_URL } from '../provider-pdf-service.mjs';
 let aliases;
 export function aliasTarget(citation, engine) {
@@ -85,6 +86,7 @@ export async function retrievePdf(source,settings,progress,signal){
   catch(error){await reader.cancel();throw error;}finally{reader.releaseLock();}
   const data=new Uint8Array(total);let at=0;for(const chunk of chunks){data.set(chunk,at);at+=chunk.length;}
   if(new TextDecoder().decode(data.subarray(0,5))!=='%PDF-')throw new Error('The returned file is not a PDF.');
+  if(!hasPdfEndMarker(data))throw Object.assign(new Error('The PDF download is incomplete. Retry the download.'),{code:'incomplete_pdf'});
   return data;
 }
 // PDF files are already compressed. Store-only ZIP avoids a second heavyweight archive dependency.
