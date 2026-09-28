@@ -4,7 +4,7 @@
 // publisher's own PDF for a decision page or PDF URL. Any other source goes through
 // the Authorities relay, which returns the upstream status, headers and redirects
 // that the runtime's own redirect handling expects.
-import { DECISIA_HOSTS } from "../../../backend/src/lib/legalSourcePresentation";
+import { DECISIA_HOSTS } from "../authorities-lite/publisher.mjs";
 
 const DIRECT_HOSTS = new Set(["api.a2aj.ca"]);
 const PUBLISHER_SERVICE = "https://quiet-wildflower-ab0d.eliziffprofessional.workers.dev/";
