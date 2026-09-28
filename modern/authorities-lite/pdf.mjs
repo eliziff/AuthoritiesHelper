@@ -16,7 +16,8 @@ export const normalize = s => String(s).normalize('NFKC').replace(/\s+/g, ' ').t
 const union = (a, b) => [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[2], b[2]), Math.max(a[3], b[3])];
 const clamp = v => Math.max(0, Math.min(1, v));
 export async function openPdf(data) {
-  GlobalWorkerOptions.workerSrc = assetURL('pdfWorker');
+  // A direct data-URL worker also works in downloaded file:// HTML.
+  GlobalWorkerOptions.workerPort ||= new Worker(assetURL('pdfWorker'), { type: 'module' });
   return getDocument({ data: new Uint8Array(data).slice(), isEvalSupported: false, useSystemFonts: true }).promise;
 }
 function itemGeometry(item, style, viewport) {
@@ -156,7 +157,7 @@ export function verifyIdentity(pages,record,engine){
   const identities=headerIdentities(pages,engine), accepted=new Set(aliases.map(c=>c.key).filter(Boolean));
   const own=identities.filter(i=>i.family==='neutral');
   const candidates = own.length ? own.slice(0,1) : identities;
-  if(!own.length&&scrRunningHead(pages,aliases,engine))return;
+  if((!own.length||!aliases.some(c=>c.format==='neutral'))&&scrRunningHead(pages,aliases,engine))return;
   if(!candidates.some(i=>i.key && accepted.has(i.key)))throw new Error(own.length?`Wrong PDF: its opening citation is ${own[0].text}, not ${record.citation}.`:'The opening citation could not be verified. Keep this file unbound and check its first page.');
 }
 export function attachFindings(document,record,engine){
