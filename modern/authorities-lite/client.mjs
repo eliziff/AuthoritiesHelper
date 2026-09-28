@@ -45,7 +45,8 @@ async function lookupCase(citation, signal) {
 export async function resolveRecord(record, engine, signal) {
   const alternate = aliasTarget(record.citation, engine);
   const candidates=[record.citation];
-  if(alternate&&/^\d{4}\s/.test(alternate))candidates.push(alternate);
+  const parsed=alternate&&extractCitations(engine,alternate);
+  if(parsed?.length===1&&parsed[0].form==='full'&&parsed[0].format==='neutral'&&parsed[0].key&&parsed[0].span.text.trim()===alternate.trim())candidates.push(alternate);
   const accepted=new Set(candidates.map(citation => key(citation, engine)).filter(Boolean));let found;
   const exact = rows => (Array.isArray(rows)?rows:[]).filter(row=>['citation_en','citation2_en','citation_fr','citation2_fr'].some(field=>{
     const text=row[field];if(!text)return false;

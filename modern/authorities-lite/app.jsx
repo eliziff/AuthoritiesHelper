@@ -116,7 +116,7 @@ function state(record){
 const TONE={ok:'border-emerald-200 bg-emerald-50 text-emerald-800',warn:'border-emerald-200 bg-emerald-50 text-emerald-800',busy:'border-gray-200 bg-gray-100 text-gray-700',bad:'border-amber-200 bg-amber-50 text-amber-800',idle:'border-gray-200 bg-white text-gray-600'};
 function Record({record}){
  const [over,setOver]=useState(false);
- const same=key(record.name)===key(record.citation),st=state(record),ready=!!record.document;
+ const same=record.name===record.citation,st=state(record),ready=!!record.document;
  let pdfLink=canliiPdf(record.citation,engine);if(!pdfLink)for(const c of record.aliases){pdfLink=canliiPdf(c,engine);if(pdfLink)break;}
  return <article className={cx('grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 border-l-4 px-4 py-4',ready?'border-l-emerald-500':'border-l-transparent',over&&'bg-red-50')} {...dropProps(files=>upload(files,record),setOver)}>
   <label className="inline-flex min-h-6 items-start pt-0.5"><input type="checkbox" className="size-[18px] cursor-pointer accent-gray-950 disabled:opacity-50" checked={record.enabled} disabled={busy} aria-label={`Include ${record.citation}`} onChange={e=>{record.enabled=e.target.checked;emit();}}/></label>

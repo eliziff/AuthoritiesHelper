@@ -18,10 +18,7 @@ export function parseInstructions(text, engine) {
     const occurrence = occurrences[i];
     const hit = occurrence.span;
     const id = occurrence.key || `unresolved:${hit.start}:${hit.end}`;
-    const before = text.slice(Math.max(text.lastIndexOf('\n', hit.start - 1) + 1, i ? occurrences[i-1].fullSpan.end : 0), hit.start).trim();
-    const related = /\b(adopting|citing|following|quoting)\s+([^\n]+?),?\s*$/i.exec(before);
-    const style = occurrence.shortName || related?.[2]?.replace(/,\s*$/, '') || before.replace(/^[\s(]+|[,\s]+$/g, '');
-    const name = style && style.length < 180 && !/please|download|highlight/i.test(style) ? style : hit.text;
+    const name = occurrence.style?.text || occurrence.shortName || hit.text;
     const tail = text.slice(hit.end, Math.min(occurrences[i+1]?.fullSpan.start ?? text.length, text.indexOf('\n', hit.end) === -1 ? text.length : text.indexOf('\n', hit.end)));
     const pinpoints = occurrence.pinpoints || [];
     const nested = /\bitem\s+(\d+[a-z]?)\b/i.exec(tail)?.[1];
