@@ -28,7 +28,7 @@ The package's `worker.mjs` is already a single bundled ES module: no npm imports
 1. Create your Cloudflare account and stay on **Workers Free**.
 2. Under **Workers & Pages**, create a basic Worker/template, deploy it, then open **Edit Code**.
 3. Replace the starter script with the complete bundled `worker.mjs` and deploy. The package pins the tested compatibility date `2026-06-24`; set that date under Worker Settings for an identical runtime contract.
-4. The current prototype is pinned to `https://quiet-wildflower-ab0d.eliziffprofessional.workers.dev/`. If this deployment is replaced, update `DEFAULT_SERVICE_URL` in `authorities-lite/client.mjs` and rebuild. End users configure nothing.
+4. The current app uses `https://quiet-wildflower-ab0d.eliziffprofessional.workers.dev/`. Its `wrangler.jsonc` names that same Worker; deploy updates with `npx wrangler deploy --config wrangler.jsonc` from this directory, then check `/health`. If the Worker is replaced, update both its name and `DEFAULT_SERVICE_URL` in `authorities-lite/client.mjs` before rebuilding. End users configure nothing.
 
 There is deliberately no application secret. The endpoint is public but narrowly constrained to approved public legal-publisher hosts and paths; a shared secret distributed to browser clients would not be secret. Do not put Cloudflare account credentials or API tokens in the HTML. No account is created, paid plan enabled, or public deployment performed by the repository build.
 
