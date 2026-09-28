@@ -6,6 +6,7 @@
 //   node AuthoritiesHelper/modern/html/build.mjs [output.html]
 //   node AuthoritiesHelper/modern/html/build.mjs --relay [relay-worker.js]
 // AUTHORITIES_RELAY_URL names the deployed relay the page uses for publisher sources.
+import { browserOcrAssets, OCR_RUNTIME_SHA256 } from '../browser-ocr/package.mjs';
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -31,6 +32,8 @@ async function buildFrontend() {
   const outDir = mkdtempSync(path.join(tmpdir(), "authorities-html-"));
   const { codeSplitting: _groups, ...output } = loaded.config.build?.rolldownOptions?.output ?? {};
   const result = await build({ ...loaded.config, root: frontend, configFile: false, logLevel: "warn",
+    plugins: [...(loaded.config.plugins ?? []), {name:'browser-pdf-text',enforce:'pre',
+      resolveId(source) { if(source === './standalonePdfText') return path.join(here,'standalone-pdf-text.mjs'); }}],
     build: { ...loaded.config.build, outDir, emptyOutDir: true, modulePreload: false,
       cssCodeSplit: false, assetsInlineLimit: () => true,
       rolldownOptions: { ...loaded.config.build?.rolldownOptions,
@@ -52,7 +55,7 @@ async function buildFrontend() {
 async function bundleBridge(payload) {
   const { build } = createRequire(path.join(repo, "backend/package.json"))("esbuild");
   const result = await build({ entryPoints: [path.join(here, "page-bridge.mjs")], bundle: true, write: false,
-    format: "iife", target: "es2022", minify: true, define: { __AUTHORITIES_PAYLOAD__: JSON.stringify(payload) } });
+    format: "iife", target: "es2022", minify: true, define: { __AUTHORITIES_PAYLOAD__: JSON.stringify(payload), __OCR_RUNTIME_SHA256__: JSON.stringify(OCR_RUNTIME_SHA256) } });
   return result.outputFiles[0].text;
 }
 
@@ -62,7 +65,8 @@ export async function buildAuthoritiesHtml(output) {
   const runtime = await bundleRuntime();
   const { html, script, css } = await buildFrontend();
   const bridge = await bundleBridge({
-    runtime: runtime.code, relayUrl,
+    runtime: runtime.code, relayUrl, ocr: { ...await browserOcrAssets(),
+      pdfWorker: readFileSync(path.join(here, "../vendor/runtime/dist/pdf.worker.min.mjs")).toString("base64") },
     // Gzip keeps the page small; the runtime Worker inflates and compiles it off the main thread.
     engine: gzipSync(readFileSync(engine), { level: 9 }).toString("base64"),
     fonts: Object.fromEntries(readdirSync(fonts).filter((name) => !name.startsWith("LICENSE"))

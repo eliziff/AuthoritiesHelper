@@ -60,7 +60,7 @@ class NativeDocumentHandle { constructor(handle, generation) { this.handle = han
  *   a fresh WASI-initialized engine and the panic text it last wrote to stderr
  * @param {(bytes: Uint8Array) => Uint8Array} toBuffer wraps result bytes as the host's Buffer
  */
-export function createStructureAddon(instantiate, toBuffer = (bytes) => bytes) {
+export function createStructureAddon(instantiate, toBuffer = (bytes) => bytes, recognizePdf) {
   const encoder = new TextEncoder(), decoder = new TextDecoder();
   // A Rust panic traps the instance and leaves its memory unusable; the next call starts
   // a new one. Documents belong to the instance that made them.
@@ -118,9 +118,22 @@ export function createStructureAddon(instantiate, toBuffer = (bytes) => bytes) {
     if (name === "fixDocxSupraCrossReferences") return { ...value, bytes: toBuffer(out) };
     return value;
   }
+  async function invokeAsync(name, positional) {
+    if (recognizePdf && ["preparePdfDocument", "derivePdfDocument"].includes(name) && positional[1]?.ocr) {
+      const [bytes, request, signal] = positional;
+      signal?.throwIfAborted();
+      const { ocr, ...plain } = request;
+      const inspected = invoke("preparePdfDocument", [bytes, plain]);
+      const pages = inspected.pagesNeedingOcr.filter(index => !request.pages || request.pages.includes(index + 1));
+      const supplied = pages.length ? await recognizePdf(bytes, inspected.sha256, pages, signal) : undefined;
+      signal?.throwIfAborted();
+      return invoke(name, [bytes, { ...plain, ...(supplied ? { supplied_ocr: supplied } : {}) }]);
+    }
+    return invoke(name, positional);
+  }
   const addon = {};
   for (const name of Object.keys(SIGNATURES)) addon[name] = ASYNC.has(name)
-    ? (...positional) => new Promise((resolve) => resolve(invoke(name, positional)))
+    ? (...positional) => invokeAsync(name, positional)
     : (...positional) => invoke(name, positional);
   return addon;
 }

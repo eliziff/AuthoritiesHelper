@@ -25,6 +25,7 @@ const backendRequired = ["src/routes/authoritiesRuntime.ts", "src/lib/authoritie
 export const browserRuntime = {
   name: "authorities-browser-runtime",
   setup(build) {
+    build.onResolve({ filter: /[\\/]pdfProfile$/ }, () => ({ path: own("pdf-profile.mjs") }));
     build.onResolve({ filter: /^(?:node:)?[a-z_]+(?:\/[a-z_]+)?$/ }, ({ path: name, importer }) => {
       // readable-stream probes for a native stream; it is the stream implementation here.
       if (name === "stream" && /node_modules[\\/]readable-stream[\\/]/.test(importer)) return { path: own("node/absent.mjs") };

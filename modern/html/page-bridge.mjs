@@ -1,3 +1,4 @@
+import { recognizePdf, readRecognizedText } from './recognize-pdf.mjs';
 // Runs before the Authorities workspace in the self-contained HTML. It starts the
 // runtime Worker and answers the requests the loopback server would: the runtime
 // API and the PDF.js standard fonts. Everything else goes to the network as usual.
@@ -6,11 +7,23 @@
 const API = "/api/authorities-runtime/";
 const FONTS = "/pdfjs-standard-fonts/";
 const payload = __AUTHORITIES_PAYLOAD__;
+globalThis.AUTHORITIES_ASSETS = payload.ocr;
+globalThis.AUTHORITIES_PDF_TEXT = {
+  read: readRecognizedText,
+  async prepare(product, role, file, priority, scanned, signal, completed) {
+    const hash = product.state.bindings[role].lastSeen.sha256;
+    const pages = scanned ? [...new Set([...(priority ?? []).filter(page=>scanned.includes(page)),...scanned])]
+      .map(page=>page-1) : undefined;
+    await recognizePdf(new Uint8Array(await file.arrayBuffer()),hash,pages,signal,completed,(priority ?? []).map(page=>page-1),
+      product.state.authorityOrder.findIndex(id=>product.state.authorities[id].source.sources?.some(source=>source.bindingRole===role)));
+  },
+};
 const decode = (base64) => Uint8Array.from(atob(base64), (character) => character.charCodeAt(0));
 
 const worker = new Worker(URL.createObjectURL(new Blob([payload.runtime], { type: "text/javascript" })),
   { name: "authorities-runtime" });
 const pending = new Map();
+const recognition = new Map();
 let nextId = 0, failure = null;
 const ready = new Promise((resolve, reject) => {
   const stop = (message) => {
@@ -21,6 +34,14 @@ const ready = new Promise((resolve, reject) => {
   };
   worker.onerror = (event) => stop(event.message);
   worker.onmessage = ({ data }) => {
+    if (data.type === "cancel-recognition") { recognition.get(data.id)?.abort(); return; }
+    if (data.type === "recognize") {
+      const controller = new AbortController(); recognition.set(data.id, controller);
+      recognizePdf(data.bytes, data.sourceSha256, data.pages, controller.signal).then(
+        result => worker.postMessage({ type: 'recognized', id: data.id, result }),
+        error => worker.postMessage({ type: 'recognized', id: data.id, error: error.message })).finally(() => recognition.delete(data.id));
+      return;
+    }
     if (data.type === "ready") return resolve();
     if (data.type === "failed") return stop(data.message);
     const request = pending.get(data.id);

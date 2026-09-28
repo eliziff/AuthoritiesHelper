@@ -43,5 +43,6 @@ which reaches only the resolver's legal-source hosts and never CanLII. Deploy it
 with `node html/build.mjs --relay` and
 `npx wrangler deploy --config html/relay-wrangler.jsonc`, then build with
 `AUTHORITIES_RELAY_URL` set to its address. Without it, sources are attached
-manually. Scanned-PDF recognition uses the native OCR runtime, which the browser
-build does not include; choose to keep scanned pages as images there.
+manually. The HTML package embeds the OCR model, runtime, layout workers and
+PDF worker. Scanned pages are recognized in the browser and passed to the
+shared PDF parser with their page geometry.

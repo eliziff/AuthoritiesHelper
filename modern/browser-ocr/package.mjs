@@ -1,0 +1,54 @@
+// One pinned browser recognizer for both standalone Authorities packages.
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import os from 'node:os';
+import crypto from 'node:crypto';
+import { execFileSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
+
+export const OCR_SOURCE = 'b05952bd9b8dd47c93290899c8e3142b266d85c7';
+export const OCR_RUNTIME_SHA256 = '7db31e463e4d4ce6babe377093a103d71ef3e695e09868fb44735a02d4da138d';
+const vendor = path.resolve(import.meta.dirname, '../vendor');
+const files = {
+  model: 'assets/model.ort', codec: 'assets/codec.json',
+  ortMjs: 'assets/ort.mjs', ortWasm: 'assets/ort.wasm',
+  recognitionWorker: 'dist/recognition-worker.js',
+  layoutWorker: 'tesseract-layout-worker.js',
+  layoutCore: 'assets/layout-core.mjs', layoutWasm: 'assets/layout-core.wasm',
+};
+
+async function download(url) {
+  const response = await fetch(url, { signal: AbortSignal.timeout(90_000) });
+  if (!response.ok) throw new Error(`${response.status}: ${url}`);
+  return new Uint8Array(await response.arrayBuffer());
+}
+
+async function unpack(bytes, destination, strip = false) {
+  const temporary = await fs.mkdtemp(path.join(os.tmpdir(), 'authorities-ocr-'));
+  try {
+    const archive = path.join(temporary, 'input.tar.gz');
+    await fs.writeFile(archive, bytes);
+    await fs.mkdir(destination, { recursive: true });
+    execFileSync('tar', ['-xzf', archive, ...(strip ? ['--strip-components=1'] : []), '-C', destination]);
+  } finally { await fs.rm(temporary, { recursive: true, force: true }); }
+}
+
+export async function prepareBrowserOcr() {
+  const runtime = process.env.AUTHORITIES_OCR_RUNTIME
+    ? await fs.readFile(process.env.AUTHORITIES_OCR_RUNTIME)
+    : await download('https://github.com/eliziff/legal-browser-ocr/releases/download/v0.1.4/legal-browser-ocr-runtime.tar.gz');
+  if (crypto.createHash('sha256').update(runtime).digest('hex') !== OCR_RUNTIME_SHA256)
+    throw new Error('OCR runtime checksum mismatch.');
+  await unpack(runtime, path.join(vendor, 'runtime'));
+  await unpack(await download(`https://codeload.github.com/eliziff/legal-browser-ocr/tar.gz/${OCR_SOURCE}`),
+    path.join(vendor, 'ocr-source'), true);
+  await fs.writeFile(path.join(vendor, 'ocr-source-revision.txt'), OCR_SOURCE + '\n');
+}
+
+export async function browserOcrAssets() {
+  return Object.fromEntries(await Promise.all(Object.entries(files).map(async ([name, file]) =>
+    [name, (await fs.readFile(path.join(vendor, 'runtime', file))).toString('base64')])));
+}
+
+if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url)
+  await prepareBrowserOcr();

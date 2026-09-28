@@ -15,6 +15,22 @@ const PREFIX = "/api/authorities-runtime";
 // structureNative() loads its engine through process.dlopen: here, the same crate compiled
 // for WASI, compiled once when the runtime starts.
 let engineModule;
+let recognitionId = 0;
+const recognition = new Map();
+function recognizePdf(bytes, sourceSha256, pages, signal) {
+  const id = ++recognitionId;
+  return new Promise((resolve, reject) => {
+    const abort = () => {
+      recognition.delete(id);
+      self.postMessage({ type: 'cancel-recognition', id });
+      reject(new DOMException('Recognition cancelled', 'AbortError'));
+    };
+    signal?.addEventListener('abort', abort, { once: true });
+    recognition.set(id, { resolve, reject, cleanup: () => signal?.removeEventListener('abort', abort) });
+    const copy = Uint8Array.from(bytes);
+    self.postMessage({ type: 'recognize', id, bytes: copy, sourceSha256, pages }, [copy.buffer]);
+  });
+}
 process.dlopen = (module, filename) => {
   if (filename !== ENGINE_PATH || !engineModule) throw new Error(`Cannot load ${filename}`);
   module.exports = createStructureAddon(() => {
@@ -27,7 +43,7 @@ process.dlopen = (module, filename) => {
     // The panic hook writes "thread ... panicked at file:line:\nmessage".
     return { instance, close: wasi.close,
       panic: () => stderr.split(/panicked at [^\n]*\n/u).at(-1).trim().split("\n")[0] ?? "" };
-  }, (bytes) => Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength));
+  }, (bytes) => Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength), recognizePdf);
 };
 
 async function loadEngine(base64) {
@@ -132,7 +148,12 @@ async function handle({ id, method, path, headers, body, json, form }) {
 }
 
 self.onmessage = async ({ data }) => {
-  if (data.type === "init") {
+  if (data.type === "recognized") {
+    const pending = recognition.get(data.id);
+    if (!pending) return;
+    recognition.delete(data.id); pending.cleanup();
+    data.error ? pending.reject(new Error(data.error)) : pending.resolve(data.result);
+  } else if (data.type === "init") {
     try {
       await loadEngine(data.engine);
       globalThis.AUTHORITIES_RELAY_URL = data.relayUrl;
