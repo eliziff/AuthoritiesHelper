@@ -31,6 +31,7 @@ async function buildFrontend() {
   const outDir = mkdtempSync(path.join(tmpdir(), "authorities-html-"));
   const { codeSplitting: _groups, ...output } = loaded.config.build?.rolldownOptions?.output ?? {};
   const result = await build({ ...loaded.config, root: frontend, configFile: false, logLevel: "warn",
+    define: { ...loaded.config.define, "import.meta.env.VITE_AUTHORITIES_RECOGNITION": '"unavailable"' },
     build: { ...loaded.config.build, outDir, emptyOutDir: true, modulePreload: false,
       cssCodeSplit: false, assetsInlineLimit: () => true,
       rolldownOptions: { ...loaded.config.build?.rolldownOptions,
