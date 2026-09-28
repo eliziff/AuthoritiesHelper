@@ -129,11 +129,12 @@ export async function inspectPdf(data, engine, progress=()=>{}, signal, expected
       pageNumber:page.number,width:page.width,height:page.height,lines:page.lines.map(line=>({text:line.text,words:[],
         rect:(line.layoutRect||line.rect).map((value,index)=>value*(index%2?page.height:page.width))}))
     })),(text,page)=>extractCitations(engine,text).some(c=>c.form==='full'&&c.format==='reporter'&&c.fields?.page===page));
-    const pageLabels=resolvePdfPagination(observed,await pdf.getPageLabels()||[],starts).map(binding=>binding.label);
+    const pageBindings=resolvePdfPagination(observed,await pdf.getPageLabels()||[],starts);
+    const pageLabels=pageBindings.map(binding=>binding.label);
     const assembled=assembleText(pages),sourceSha256=await hash(data);
     progress('Locating requested passages');
     const structure=engine({op:'structure',input:{provider:'pdf',citation:expectedRecord?.citation||'Uploaded PDF',source_kind:'cases',text:assembled.text}});
-    return {data:new Uint8Array(data),pages,ocrPages,pageLabels,sourceSha256,...assembled,nodes:structure.nodes};
+    return {data:new Uint8Array(data),pages,ocrPages,pageLabels,pageBindings,sourceSha256,...assembled,nodes:structure.nodes};
   }finally{await pdf.destroy();}
 }
 export function headerIdentities(pages,engine){
