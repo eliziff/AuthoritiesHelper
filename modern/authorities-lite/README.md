@@ -33,7 +33,7 @@ npx wrangler whoami
 npx wrangler deploy --config wrangler.jsonc
 ```
 
-Check `https://quiet-wildflower-ab0d.authorities-lite.workers.dev/health`. If deploying to another account or Worker, update its name in `wrangler.jsonc` and `DEFAULT_SERVICE_URL` in `client.mjs` before rebuilding Lite. End users configure nothing.
+Check `https://quiet-wildflower-ab0d.authorities-lite.workers.dev/health`. If deploying to another account or Worker, update its name in `wrangler.jsonc` and `DEFAULT_SERVICE_URL` in `../provider-pdf-service.mjs` before rebuilding both standalone apps. End users configure nothing.
 
 There is deliberately no application secret. The endpoint is public but narrowly constrained to approved public legal-publisher hosts and paths; a shared secret distributed to browser clients would not be secret. Do not put Cloudflare account credentials or API tokens in the HTML. No account is created, paid plan enabled, or public deployment performed by the repository build.
 

@@ -1,6 +1,6 @@
 // MIT. Citation recognition and structural boundaries belong to the shared Rust engine.
 import { citationCall, extractCitations } from './engine.mjs';
-import { printedPageIndices, resolvePrintedPages } from '../vendor/beaver/shared/pdf-page-binding.mjs';
+import { resolvePrintedPages } from '../vendor/beaver/shared/pdf-page-binding.mjs';
 export const key = (text, engine) => citationCall(engine, 'keyForText', { text: String(text || '') }).key;
 export const targetLabel = t => `${t.kind === 'page' ? 'Page' : 'Para'} ${t.value}${t.item ? ` · item ${t.item}` : ''}`;
 export function expandLocator({ first, last }) {
@@ -38,8 +38,7 @@ export function findTargets(document, targets, engine) {
   return targets.map(target => {
     let selected = [];
     if (target.kind === 'page') {
-      const labels=document.pageLabels||[];
-      const indices=resolvePrintedPages(String(target.value),printedPageIndices(labels),labels.length);
+      const indices=resolvePrintedPages(String(target.value),document.pageBindings||[]);
       return indices.length?{target,status:'unlocated',pdfPage:indices[0]+1,
         message:`Printed page mapped to PDF ${indices.map(index=>index+1).join(', ')}; open it to mark the passage.`}
         :{target,status:'unlocated',message:'Printed page could not be mapped; use the PDF page controls to add a mark.'};

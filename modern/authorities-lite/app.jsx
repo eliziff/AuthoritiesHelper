@@ -39,7 +39,7 @@ async function find(target=null){
     setStatus(r,'Connecting to publisher');const data=await retrievePdf(r.sourceUrl,settings(),s=>setStatus(r,s),controller.signal);await bind(r,data,controller.signal);
    }catch(error){r.verificationRequired=error.code==='verification_required';r.verificationUrl=r.verificationRequired?error.verificationUrl||null:null;
     if(r.verificationRequired&&r.sourceUrl)blockedPublishers.set(new URL(r.sourceUrl).origin,{verificationUrl:r.verificationUrl});
-    setStatus(r,controller.signal.aborted?'Cancelled':r.verificationRequired?'Publisher verification is needed. Open it, then retry download.':error.message,true);}
+    setStatus(r,controller.signal.aborted?'Cancelled':r.verificationRequired?'Automatic download blocked. Download the PDF from the publisher, then upload it here.':error.message,true);}
   }
  }finally{working=null;controller=null;setBusy(false);}
 }

@@ -6,7 +6,7 @@ export function bytes(name) {
 }
 export function assetURL(name, mime = 'application/javascript') {
   // Match Legal Browser OCR: a file-origin child worker cannot import sibling blob:null modules.
-  if (['ortMjs','ortWasm','layoutCore','layoutWasm'].includes(name)) {
+  if (['pdfWorker','ortMjs','ortWasm','layoutCore','layoutWasm'].includes(name)) {
     const data = globalThis.AUTHORITIES_ASSETS?.[name];
     if (!data) throw new Error(`The packaged runtime is missing ${name}.`);
     return `data:${mime};base64,${data}`;

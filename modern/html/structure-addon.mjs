@@ -18,7 +18,7 @@ const SIGNATURES = {
   restorePdfDocument: ["request"],
   pdfDocumentSummary: ["document"], pdfRecognizedText: ["document", "pages"],
   pdfAuthorityTextUnits: ["document"], pdfPageLabels: ["document"],
-  pdfPassageGeometryPages: ["document", "bytes", "targets"],
+  pdfPassageGeometryPages: ["document", "targets"],
   pdfLookupUnitSpans: ["document", "ids"],
   queryPdfDocument: ["document", "locatorKind", "locator", "endLocator", "contextBlocks", "page", "occurrence"],
   docxStructureLint: ["document"],
