@@ -4,11 +4,10 @@ This Authorities integration is MIT-licensed, Copyright (c) 2026 Elias Ziff; the
 
 ## Reused components
 
-- **Beaver**, eliziff/Beaver, revision `17c2300c4b0a238fbcded210c2b0206a117ce2ff`: the reused files are the author's (Elias Ziff's) own code and are included here under MIT. The pinned files supply PDF annotation and page-binding/navigation logic, CanLII URLs, A2AJ metadata and the provider PDF bridge. The publisher helper has separate source provenance below.
+- **Beaver**, eliziff/Beaver, revision `8512b629e01b5f596360ffde33feb56eb3126ba9`: the reused files are the author's (Elias Ziff's) own code and are included here under MIT. The pinned files supply PDF annotation and page-binding/navigation logic, CanLII URLs, A2AJ metadata and the provider PDF bridge. The publisher helper has separate source provenance below.
 - **Legal Browser OCR**, eliziff/legal-browser-ocr, source revision `83122a28fc4901ea275a4aa165340917f9c2b85c`: MIT source; runtime/model components retain their own licenses. Its quality inference worker, preprocessing, layout, line ordering and searchable PDF export are reused, not reimplemented. The v0.1.4 runtime archive is checksum-verified by `prepare.mjs`.
 - **Legal Structure Parser**: MIT. The Rust parser runs behind the browser ABI; its exact revision is recorded in `SOURCES.json`.
 - **Common Law Cite**: the shared Rust citation engine. Its exact revision is recorded in `SOURCES.json`, and its own `NOTICE` is included in the package.
-- **Common Law Cite**, transitive revision `2610e45fd367a27cebdb32529694726c210fb9ac`: the shared Rust citation engine used by Legal Structure Parser. Its own `NOTICE` is included in the ready-built package.
 - **Legal Pinpointer**: MIT. Its reporter-alias data and notices are retained; the exact revision is recorded in `SOURCES.json`.
 - **PDF.js**, Mozilla/pdf.js, bundled `pdfjs-dist` 4.10.38: Apache-2.0. https://github.com/mozilla/pdf.js/blob/master/LICENSE
 - **pdf-lib**, Andrew Dillon and contributors, 1.17.1: MIT. https://github.com/Hopding/pdf-lib/blob/master/LICENSE.md

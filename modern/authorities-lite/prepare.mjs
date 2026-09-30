@@ -1,7 +1,7 @@
 // Developer build step only. End users receive the already bundled HTML and Worker.
 import fs from 'node:fs/promises';import path from 'node:path';import os from 'node:os';import crypto from 'node:crypto';import {execFileSync} from 'node:child_process';
 const root=path.resolve(import.meta.dirname,'..'),vendor=path.join(root,'vendor');
-const sources=[['legal-pinpointer','pinpointer','2321b0e4c3253bcd08289bff3ad42a0ccc2bcc13'],['legal-structure-parser','structure','92777a4554a01eecc33be4496ee1fbb39f0659ee'],['legal-browser-ocr','ocr-source','b05952bd9b8dd47c93290899c8e3142b266d85c7']];
+const sources=[['legal-pinpointer','pinpointer','2321b0e4c3253bcd08289bff3ad42a0ccc2bcc13'],['legal-structure-parser','structure','53c0df7ee2e53bbebc4ec39f2060dd391a8b2a3e'],['legal-browser-ocr','ocr-source','b05952bd9b8dd47c93290899c8e3142b266d85c7']];
 const beaver=(await fs.readFile(path.join(root,'beaver-revision.txt'),'utf8')).trim();
 if(!/^[0-9a-f]{40}$/.test(beaver))throw new Error('modern/beaver-revision.txt must contain an exact Beaver commit SHA.');
 async function get(url){const response=await fetch(url,{signal:AbortSignal.timeout(90000)});if(!response.ok)throw new Error(`${response.status}: ${url}`);return new Uint8Array(await response.arrayBuffer());}
