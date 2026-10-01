@@ -1,4 +1,4 @@
-import { recognizePdf, readRecognizedText, recognitionWaiting } from './recognize-pdf.mjs';
+import { holdBackground, recognizePdf, readRecognizedText, recognitionWaiting } from './recognize-pdf.mjs';
 import { readParseCache, writeParseCache } from './parse-cache-store.mjs';
 // Runs before the Authorities workspace in the self-contained HTML. It starts the
 // runtime Worker and answers the requests the loopback server would: the runtime
@@ -106,9 +106,12 @@ async function runtimeFetch(request, path, init) {
   const encoded = await encodeBody(request, init);
   if (signal.aborted) throw aborted();
   const id = ++nextId;
+  let built;
+  // A build is waited on: recognition it does not need waits until it is done.
+  if (path === `${API}build`) holdBackground(new Promise((resolve) => { built = resolve; }));
   return new Promise((resolve, reject) => {
     let controller;
-    const finish = () => { pending.delete(id); signal.removeEventListener("abort", onAbort); };
+    const finish = () => { pending.delete(id); signal.removeEventListener("abort", onAbort); built?.(); };
     const fail = (error) => {
       finish(); reject(error);
       try { controller.error(error); } catch { /* already closed */ }

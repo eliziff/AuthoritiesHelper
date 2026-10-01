@@ -9,16 +9,59 @@ import { OCR_PARALLEL, recognizePage } from '../browser-ocr/ocr.mjs';
 let pdfWorker;
 const worker = () => pdfWorker ??= new PDFWorker({ port: new Worker(assetURL('pdfWorker'), { type: 'module' }) });
 
+// A source's PDF.js document, opened once for every pass and page reading it, and closed
+// when none is left.
+const documents = new Map();
+function useDocument(source, bytes) {
+  let entry = documents.get(source);
+  if (!entry) documents.set(source, entry = { users: 0, task: null,
+    // A copy: PDF.js takes the bytes it is given to its worker.
+    open: () => (entry.task ??= getDocument({ data: bytes.slice(), isEvalSupported: false,
+      useSystemFonts: true, worker: worker() })).promise });
+  entry.users += 1;
+  return { open: entry.open, close() {
+    if (--entry.users) return;
+    documents.delete(source); void entry.task?.destroy();
+  } };
+}
+
 // As many pages at once as there are recognizers: queued priority pages first, then source order.
-const queue = [], sourceOrder = new Map();
+// A page is read once however many passes ask for it, at the highest priority any asks.
+const queue = [], sourceOrder = new Map(), reads = new Map();
 // Sources whose pages have begun, until one has no page queued or being read.
 const started = new Set();
-let running = 0;
-function schedulePage(source, priority, run) {
-  if (!sourceOrder.has(source)) sourceOrder.set(source, sourceOrder.size);
+let running = 0, held = 0;
+/** While the promise is pending, pages no one waits on (none of priority) are not begun. */
+export function holdBackground(promise) {
+  held += 1;
+  promise.finally(() => { held -= 1; setTimeout(drain, 0); });
+}
+function readPage(source, key, bytes, page_index, priority, signal) {
+  const id = `${key}:${page_index}`;
+  let job = reads.get(id);
+  if (!job) {
+    const controller = new AbortController();
+    job = { source, order: sourceOrder.get(source), priority, controller, askers: 0,
+      run: () => recognizeOne(source, key, bytes, page_index, controller.signal) };
+    job.result = new Promise((resolve, reject) => Object.assign(job, { resolve, reject }));
+    job.result.catch(() => {}).finally(() => { if (reads.get(id) === job) reads.delete(id); });
+    reads.set(id, job); queue.push(job);
+  }
+  job.priority ||= priority;
+  job.askers += 1;
+  setTimeout(drain, 0);
   return new Promise((resolve, reject) => {
-    queue.push({ source, order: sourceOrder.get(source), priority, run, resolve, reject });
-    setTimeout(drain, 0);
+    const leave = () => {
+      reject(signal.reason ?? new DOMException('Recognition cancelled', 'AbortError'));
+      if (--job.askers) return;
+      // No pass wants the page any more: a queued read is dropped, a running one stopped.
+      if (reads.get(id) === job) reads.delete(id);
+      const queued = queue.indexOf(job);
+      if (queued >= 0) queue.splice(queued, 1);
+      job.controller.abort();
+    };
+    signal?.addEventListener('abort', leave, { once: true });
+    job.result.then(resolve, reject).finally(() => signal?.removeEventListener('abort', leave));
   });
 }
 /** Whether a source's pages are queued behind another source's, none of its own begun. */
@@ -28,7 +71,7 @@ function drain() {
   // A source with no page queued or being read by now has finished.
   for (const source of started) if (!reading.get(source) && !queue.some(job => job.source === source)) started.delete(source);
   queue.sort((a,b) => Number(b.priority)-Number(a.priority) || a.order-b.order);
-  while (running < OCR_PARALLEL && queue.length) {
+  while (running < OCR_PARALLEL && queue.length && (queue[0].priority || !held)) {
     const job = queue.shift();
     running += 1; started.add(job.source); reading.set(job.source, (reading.get(job.source) ?? 0) + 1);
     job.run().then(job.resolve, job.reject).finally(() => {
@@ -38,55 +81,57 @@ function drain() {
     });
   }
 }
+async function recognizeOne(source, key, bytes, page_index, signal) {
+  signal.throwIfAborted();
+  const found = (await readCache(key))?.pages.find(page=>page.page_index===page_index);
+  if (found) return found;
+  const pdf = useDocument(source, bytes);
+  try {
+    const page = await (await pdf.open()).getPage(page_index + 1);
+    const raw = page.view, rotated = page.rotate % 180 !== 0;
+    const width = raw[rotated ? 3 : 2] - raw[rotated ? 1 : 0];
+    const height = raw[rotated ? 2 : 3] - raw[rotated ? 0 : 1];
+    let viewport = page.getViewport({ scale: 200 / 72 });
+    if (viewport.width * viewport.height > 12_000_000)
+      viewport = page.getViewport({ scale: viewport.scale * Math.sqrt(12_000_000 / (viewport.width * viewport.height)) });
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.ceil(viewport.width); canvas.height = Math.ceil(viewport.height);
+    try {
+      await page.render({ canvasContext: canvas.getContext('2d', { willReadFrequently: true }), viewport }).promise;
+      const recognized = await recognizePage(canvas, signal);
+      const x = value => Math.max(0, Math.min(width, value * width / viewport.width));
+      const y = value => Math.max(0, Math.min(height, value * height / viewport.height));
+      const result = { page_index, width, height, lines: recognized.map(line => ({
+        text: line.text, confidence: 0.5,
+        bbox: [x(line.x), y(line.y), x(line.x + line.width), y(line.y + line.height)],
+      })) };
+      signal.throwIfAborted();
+      await addCachedPage(key, source, result);
+      return result;
+    } finally { canvas.width = canvas.height = 1; page.cleanup(); }
+  } finally { pdf.close(); }
+}
 export async function recognizePdf(bytes, sourceSha256, pages, signal, completed = () => {}, priorityPages = pages, order) {
   signal?.throwIfAborted();
   if (order !== undefined) sourceOrder.set(sourceSha256, order);
+  else if (!sourceOrder.has(sourceSha256)) sourceOrder.set(sourceSha256, sourceOrder.size);
   const key = `${__OCR_RUNTIME_SHA256__}:${sourceSha256}`;
   const cached = await readCache(key);
   const retained = new Map((cached?.pages ?? []).map(page => [page.page_index, page]));
-  let task;
-  const pdfDocument = async () => {
-    task ??= getDocument({ data: bytes, isEvalSupported: false, useSystemFonts: true, worker: worker() });
-    return task.promise;
-  };
+  // Held for the whole pass, so its pages share one open document.
+  const pdf = useDocument(sourceSha256, bytes);
   try {
-    if (!pages) pages = Array.from({length:(await pdfDocument()).numPages},(_,index)=>index);
+    if (!pages) pages = Array.from({length:(await pdf.open()).numPages},(_,index)=>index);
     completed(pages.filter(index=>retained.has(index)).length);
     await Promise.all(pages.filter(page_index => !retained.has(page_index)).map(async page_index => {
       signal?.throwIfAborted();
-      const result = schedulePage(sourceSha256, priorityPages?.includes(page_index) ?? false, async () => {
-      signal?.throwIfAborted();
-      const found = (await readCache(key))?.pages.find(page=>page.page_index===page_index);
-      if (found) return found;
-      const page = await (await pdfDocument()).getPage(page_index + 1);
-      const raw = page.view, rotated = page.rotate % 180 !== 0;
-      const width = raw[rotated ? 3 : 2] - raw[rotated ? 1 : 0];
-      const height = raw[rotated ? 2 : 3] - raw[rotated ? 0 : 1];
-      let viewport = page.getViewport({ scale: 200 / 72 });
-      if (viewport.width * viewport.height > 12_000_000)
-        viewport = page.getViewport({ scale: viewport.scale * Math.sqrt(12_000_000 / (viewport.width * viewport.height)) });
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.ceil(viewport.width); canvas.height = Math.ceil(viewport.height);
-      try {
-        await page.render({ canvasContext: canvas.getContext('2d', { willReadFrequently: true }), viewport }).promise;
-        const recognized = await recognizePage(canvas, signal);
-        const x = value => Math.max(0, Math.min(width, value * width / viewport.width));
-        const y = value => Math.max(0, Math.min(height, value * height / viewport.height));
-        const result = { page_index, width, height, lines: recognized.map(line => ({
-          text: line.text, confidence: 0.5,
-          bbox: [x(line.x), y(line.y), x(line.x + line.width), y(line.y + line.height)],
-        })) };
-        signal?.throwIfAborted();
-        await addCachedPage(key, sourceSha256, result);
-        return result;
-      } finally { canvas.width = canvas.height = 1; page.cleanup(); }
-      });
-      retained.set(page_index,await result);
+      retained.set(page_index, await readPage(sourceSha256, key, bytes, page_index,
+        priorityPages?.includes(page_index) ?? false, signal));
       completed(pages.filter(index=>retained.has(index)).length);
     }));
     signal?.throwIfAborted();
     return { source_sha256: sourceSha256, pages: pages.map(page => retained.get(page)) };
-  } finally { await task?.destroy(); }
+  } finally { pdf.close(); }
 }
 
 const textPages = new WeakMap();
