@@ -44,6 +44,16 @@ const ready = new Promise((resolve, reject) => {
         error => worker.postMessage({ type: 'recognized', id: data.id, error: error.message })).finally(() => recognition.delete(data.id));
       return;
     }
+    // Publisher PDFs kept by the page's own store (registered by the workspace), by URL and hash.
+    if (data.type === "source-pdf") {
+      Promise.resolve(globalThis.AUTHORITIES_SOURCE_PDFS?.read(data.url)).catch(() => null).then((bytes) =>
+        worker.postMessage({ type: "source-pdf", id: data.id, bytes: bytes ?? null }, bytes ? [bytes.buffer] : []));
+      return;
+    }
+    if (data.type === "source-pdf-fetched") {
+      Promise.resolve(globalThis.AUTHORITIES_SOURCE_PDFS?.remember(data.url, data.sha256)).catch(() => {});
+      return;
+    }
     if (data.type === "ready") return resolve();
     if (data.type === "failed") return stop(data.message);
     const request = pending.get(data.id);

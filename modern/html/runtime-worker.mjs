@@ -9,6 +9,7 @@ import { createStructureAddon } from "./structure-addon.mjs";
 import { ApplicationError } from "../../../backend/src/lib/applicationError";
 import { createAuthoritiesRuntimeRouter } from "../../../backend/src/routes/authoritiesRuntime";
 import { structureNative } from "../../../backend/src/lib/structureNative";
+import { pageAnswered } from "./source-pdf-cache.mjs";
 
 const PREFIX = "/api/authorities-runtime";
 
@@ -149,7 +150,8 @@ async function handle({ id, method, path, headers, body, json, form }) {
 }
 
 self.onmessage = async ({ data }) => {
-  if (data.type === "recognize-progress") recognition.get(data.id)?.completed?.(data.recognized);
+  if (data.type === "source-pdf") pageAnswered(data);
+  else if (data.type === "recognize-progress") recognition.get(data.id)?.completed?.(data.recognized);
   else if (data.type === "recognized") {
     const pending = recognition.get(data.id);
     if (!pending) return;

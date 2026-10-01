@@ -7,6 +7,7 @@
 import { DECISIA_HOSTS } from "../authorities-lite/publisher.mjs";
 
 import { DEFAULT_SERVICE_URL } from "../provider-pdf-service.mjs";
+import { keepPdf, keptPdf } from "./source-pdf-cache.mjs";
 
 const DIRECT_HOSTS = new Set(["api.a2aj.ca"]);
 const PUBLISHER_HOSTS = new Set([...DECISIA_HOSTS, "www.bccourts.ca", "bccourts.ca"]);
@@ -14,6 +15,9 @@ const PUBLISHER_HOSTS = new Set([...DECISIA_HOSTS, "www.bccourts.ca", "bccourts.
 async function publisherPdf(url, init) {
   if ((init.method ?? "GET").toUpperCase() !== "GET")
     throw new Error(`${url.hostname} is only read, never written to.`);
+  // A PDF the page verified before, in this visit or an earlier one, is not fetched again.
+  const kept = await keptPdf(url.href);
+  if (kept) return new Response(kept, { headers: { "content-type": "application/pdf" } });
   const service = new URL("pdf", DEFAULT_SERVICE_URL);
   service.searchParams.set("source", url.href);
   const response = await globalThis.fetch(service, { signal: init.signal, credentials: "omit",
@@ -23,7 +27,9 @@ async function publisherPdf(url, init) {
     throw Object.assign(new Error(detail?.error ?? `The publisher PDF service could not reach ${url.hostname}.`),
       { code: detail?.code, verificationUrl: detail?.verificationUrl ?? null });
   }
-  return response;
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  if (response.headers.get("content-type")?.startsWith("application/pdf")) await keepPdf(url.href, bytes);
+  return new Response(bytes, { status: response.status, headers: response.headers });
 }
 
 export class Agent {
