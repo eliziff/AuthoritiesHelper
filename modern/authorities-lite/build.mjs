@@ -10,8 +10,8 @@ const read=p=>fs.readFileSync(path.join(root,p),'utf8'),write=(p,s)=>fs.writeFil
 write('vendor/pdf-annotations.mjs',read('vendor/beaver/shared/pdf-annotations.mjs'));
 write('vendor/annotation-writer.mjs',read('vendor/beaver/shared/pdf-annotation-writer.mjs'));
 const assets={};for(const [name,p]of Object.entries({structure:'authorities-lite/vendor/legal-structure.wasm',pdfWorker:'vendor/runtime/dist/pdf.worker.min.mjs',
- model:'vendor/runtime/assets/model.ort',codec:'vendor/runtime/assets/codec.json',ortMjs:'vendor/runtime/assets/ort.mjs',ortWasm:'vendor/runtime/assets/ort.wasm',
- recognitionWorker:'vendor/runtime/dist/recognition-worker.js',layoutWorker:'vendor/runtime/tesseract-layout-worker.js',layoutCore:'vendor/runtime/assets/layout-core.mjs',layoutWasm:'vendor/runtime/assets/layout-core.wasm',caseAliases:'vendor/pinpointer/canlii-case-aliases.tsv'}))assets[name]=fs.readFileSync(path.join(root,p)).toString('base64');
+ model:'vendor/runtime/assets/model.ort',codec:'vendor/runtime/assets/codec.json',ortMjs:'browser-ocr/wasm/ort.mjs',ortWasm:'browser-ocr/wasm/ort.wasm',
+ recognitionWorker:'vendor/runtime/dist/recognition-worker.js',layoutWorker:'vendor/runtime/tesseract-layout-worker.js',layoutCore:'browser-ocr/wasm/layout-core.mjs',layoutWasm:'browser-ocr/wasm/layout-core.wasm',caseAliases:'vendor/pinpointer/canlii-case-aliases.tsv'}))assets[name]=fs.readFileSync(path.join(root,p)).toString('base64');
 // Tailwind compiles the Beaver-styled interface into one inline stylesheet.
 execFileSync(process.execPath,[path.join(root,'node_modules/@tailwindcss/cli/dist/index.mjs'),'-i',path.join(folder,'styles.css'),'-o',path.join(folder,'vendor/styles.css'),'--minify'],{stdio:'inherit'});
 const styles=read('authorities-lite/vendor/styles.css').replaceAll('</style','<\\/style');

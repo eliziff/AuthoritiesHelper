@@ -8,13 +8,16 @@ import { pathToFileURL } from 'node:url';
 
 export const OCR_SOURCE = 'b05952bd9b8dd47c93290899c8e3142b266d85c7';
 export const OCR_RUNTIME_SHA256 = '7db31e463e4d4ce6babe377093a103d71ef3e695e09868fb44735a02d4da138d';
-const vendor = path.resolve(import.meta.dirname, '../vendor');
+const vendor = path.resolve(import.meta.dirname, '../vendor'), runtime = path.join(vendor, 'runtime');
+// The release's model, codec and workers; the WebAssembly is rebuilt from source without
+// machine paths (wasm/build.mjs) and kept in this repository.
+const wasm = path.resolve(import.meta.dirname, 'wasm');
 const files = {
-  model: 'assets/model.ort', codec: 'assets/codec.json',
-  ortMjs: 'assets/ort.mjs', ortWasm: 'assets/ort.wasm',
-  recognitionWorker: 'dist/recognition-worker.js',
-  layoutWorker: 'tesseract-layout-worker.js',
-  layoutCore: 'assets/layout-core.mjs', layoutWasm: 'assets/layout-core.wasm',
+  model: path.join(runtime, 'assets/model.ort'), codec: path.join(runtime, 'assets/codec.json'),
+  ortMjs: path.join(wasm, 'ort.mjs'), ortWasm: path.join(wasm, 'ort.wasm'),
+  recognitionWorker: path.join(runtime, 'dist/recognition-worker.js'),
+  layoutWorker: path.join(runtime, 'tesseract-layout-worker.js'),
+  layoutCore: path.join(wasm, 'layout-core.mjs'), layoutWasm: path.join(wasm, 'layout-core.wasm'),
 };
 
 async function download(url) {
@@ -47,8 +50,11 @@ export async function prepareBrowserOcr() {
 
 export async function browserOcrAssets() {
   return Object.fromEntries(await Promise.all(Object.entries(files).map(async ([name, file]) =>
-    [name, (await fs.readFile(path.join(vendor, 'runtime', file))).toString('base64')])));
+    [name, (await fs.readFile(file)).toString('base64')])));
 }
+/** Names this recognizer, so text recognized by another build is not reused. */
+export const browserOcrKey = (assets) => crypto.createHash('sha256')
+  .update(JSON.stringify(Object.entries(assets).sort())).digest('hex');
 
 if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url)
   await prepareBrowserOcr();

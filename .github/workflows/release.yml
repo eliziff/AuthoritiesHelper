@@ -66,16 +66,16 @@ jobs:
       - name: Restore the bundled browser OCR model and runtime
         working-directory: beaver/AuthoritiesHelper/modern
         run: node browser-ocr/package.mjs
-      - name: Compile the engine for WebAssembly
-        working-directory: beaver
-        run: |
-          rustup target add wasm32-wasip1
-          cargo build --locked --release --target wasm32-wasip1 --manifest-path native/legal-structure-node/Cargo.toml
+      - name: Add the engine's WebAssembly target
+        run: rustup target add wasm32-wasip1
       - name: Build Authorities.html
         working-directory: beaver
         env:
           AUTHORITIES_RELAY_URL: ${{ vars.AUTHORITIES_RELAY_URL }}
         run: node AuthoritiesHelper/modern/html/build.mjs "$GITHUB_WORKSPACE/Authorities.html"
+      - name: Check the page carries no machine paths or private files
+        working-directory: beaver
+        run: python3 scripts/check_privacy.py --artifact "$GITHUB_WORKSPACE/Authorities.html"
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}

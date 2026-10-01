@@ -1,16 +1,17 @@
 // Builds the self-contained Authorities.html: Beaver's Authorities workspace and
 // runtime, the legal-structure engine compiled to WebAssembly, and the PDF.js fonts.
-// Run from a Beaver checkout (this repository is its AuthoritiesHelper submodule)
-// after `cargo build --locked --release --target wasm32-wasip1` in native/legal-structure-node.
+// Run from a Beaver checkout (this repository is its AuthoritiesHelper submodule) with
+// cargo and the wasm32-wasip1 target installed; the engine is compiled here.
 //
 //   node AuthoritiesHelper/modern/html/build.mjs [output.html]
 //   node AuthoritiesHelper/modern/html/build.mjs --relay [relay-worker.js]
 // AUTHORITIES_RELAY_URL names the deployed relay the page uses for publisher sources.
-import { browserOcrAssets, OCR_RUNTIME_SHA256 } from '../browser-ocr/package.mjs';
+import { browserOcrAssets, browserOcrKey } from '../browser-ocr/package.mjs';
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { gzipSync } from "node:zlib";
@@ -18,7 +19,7 @@ import { assertStandaloneFrontendModules } from "../scripts/authorities-package/
 import { bundleRuntime } from "./runtime-bundle.mjs";
 
 const here = import.meta.dirname, repo = path.resolve(here, "../../.."), frontend = path.join(repo, "frontend");
-const engine = path.join(repo, "native/legal-structure-node/target/wasm32-wasip1/release/legal_structure_node.wasm");
+const engineCrate = path.join(repo, "native/legal-structure-node");
 const fonts = path.join(frontend, "node_modules/pdfjs-dist/standard_fonts");
 // The publisher relay (relay-worker.mjs) as deployed; empty leaves remote sources unavailable.
 const relayUrl = process.env.AUTHORITIES_RELAY_URL ?? "";
@@ -52,26 +53,44 @@ async function buildFrontend() {
   return { html, script: chunks[0].code, css };
 }
 
-async function bundleBridge(payload) {
+async function bundleBridge(payload, ocrKey) {
   const { build } = createRequire(path.join(repo, "backend/package.json"))("esbuild");
   const result = await build({ entryPoints: [path.join(here, "page-bridge.mjs")], bundle: true, write: false,
-    format: "iife", target: "es2022", minify: true, define: { __AUTHORITIES_PAYLOAD__: JSON.stringify(payload), __OCR_RUNTIME_SHA256__: JSON.stringify(OCR_RUNTIME_SHA256) } });
+    format: "iife", target: "es2022", minify: true, define: { __AUTHORITIES_PAYLOAD__: JSON.stringify(payload), __OCR_RUNTIME_SHA256__: JSON.stringify(ocrKey) } });
   return result.outputFiles[0].text;
 }
 
 const inline = (code) => code.replaceAll("</script", "<\\/script");
 
+/** The engine as WebAssembly, with every source path rustc records (panic locations of the
+ *  crate, its dependencies and std) mapped off this machine. Its own target directory keeps
+ *  these flags from invalidating other builds of the crate. */
+function buildEngine() {
+  const home = homedir(), mappings = [[home, "/home"],
+    [process.env.RUSTUP_HOME ?? path.join(home, ".rustup"), "/rustup"],
+    [process.env.CARGO_HOME ?? path.join(home, ".cargo"), "/cargo"], [repo, "/beaver"]];
+  const target = path.join(engineCrate, "target/authorities-html");
+  execFileSync("cargo", ["build", "--locked", "--release", "--target", "wasm32-wasip1",
+    "--manifest-path", path.join(engineCrate, "Cargo.toml"), "--target-dir", target], { stdio: "inherit",
+    // Later mappings win; encoded flags keep paths with spaces whole and spare host build scripts.
+    env: { ...process.env, CARGO_ENCODED_RUSTFLAGS: mappings
+      .map(([from, to]) => `--remap-path-prefix=${from}=${to}`).join("\x1f") } });
+  return readFileSync(path.join(target, "wasm32-wasip1/release/legal_structure_node.wasm"));
+}
+
 export async function buildAuthoritiesHtml(output) {
+  const engine = buildEngine();
   const runtime = await bundleRuntime();
   const { html, script, css } = await buildFrontend();
+  const ocr = { ...await browserOcrAssets(),
+    pdfWorker: readFileSync(path.join(here, "../vendor/runtime/dist/pdf.worker.min.mjs")).toString("base64") };
   const bridge = await bundleBridge({
-    runtime: runtime.code, relayUrl, ocr: { ...await browserOcrAssets(),
-      pdfWorker: readFileSync(path.join(here, "../vendor/runtime/dist/pdf.worker.min.mjs")).toString("base64") },
+    runtime: runtime.code, relayUrl, ocr,
     // Gzip keeps the page small; the runtime Worker inflates and compiles it off the main thread.
-    engine: gzipSync(readFileSync(engine), { level: 9 }).toString("base64"),
+    engine: gzipSync(engine, { level: 9 }).toString("base64"),
     fonts: Object.fromEntries(readdirSync(fonts).filter((name) => !name.startsWith("LICENSE"))
       .map((name) => [name, readFileSync(path.join(fonts, name)).toString("base64")])),
-  });
+  }, browserOcrKey(ocr));
   // Drop the build's external tags; the page carries everything inline.
   const page = html
     .replace(/<script\b[^>]*\bsrc=[^>]*><\/script>\s*/gu, "")

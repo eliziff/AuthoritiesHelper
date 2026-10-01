@@ -45,4 +45,9 @@ with `node html/build.mjs --relay` and
 `AUTHORITIES_RELAY_URL` set to its address. Without it, sources are attached
 manually. The HTML package embeds the OCR model, runtime, layout workers and
 PDF worker. Scanned pages are recognized in the browser and passed to the
-shared PDF parser with their page geometry.
+shared PDF parser with their page geometry. The recognition WebAssembly in
+[browser-ocr/wasm](browser-ocr/wasm) is rebuilt from pinned ONNX Runtime and
+Tesseract sources by `node browser-ocr/wasm/build.mjs`, which installs its own
+Emscripten and maps build paths so the files carry none from the build machine.
+The HTML build compiles the engine with the same mapping, and the release checks
+the page with Beaver's `scripts/check_privacy.py --artifact`.
