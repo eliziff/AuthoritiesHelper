@@ -150,7 +150,7 @@ async function handle({ id, method, path, headers, body, json, form }) {
 }
 
 self.onmessage = async ({ data }) => {
-  if (data.type === "source-pdf") pageAnswered(data);
+  if (data.type === "source-pdf" || data.type === "source-answer") pageAnswered(data);
   else if (data.type === "recognize-progress") recognition.get(data.id)?.completed?.(data.recognized);
   else if (data.type === "recognized") {
     const pending = recognition.get(data.id);

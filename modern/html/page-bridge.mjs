@@ -54,6 +54,16 @@ const ready = new Promise((resolve, reject) => {
       Promise.resolve(globalThis.AUTHORITIES_SOURCE_PDFS?.remember(data.url, data.sha256)).catch(() => {});
       return;
     }
+    // Answers sources gave to lookups, kept by the page's store until they expire.
+    if (data.type === "source-answer") {
+      Promise.resolve(globalThis.AUTHORITIES_SOURCE_ANSWERS?.read(data.url)).catch(() => null).then((body) =>
+        worker.postMessage({ type: "source-answer", id: data.id, body: body ?? null }));
+      return;
+    }
+    if (data.type === "source-answer-fetched") {
+      Promise.resolve(globalThis.AUTHORITIES_SOURCE_ANSWERS?.remember(data.url, data.body, data.expires)).catch(() => {});
+      return;
+    }
     if (data.type === "ready") return resolve();
     if (data.type === "failed") return stop(data.message);
     const request = pending.get(data.id);

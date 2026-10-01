@@ -7,9 +7,23 @@
 import { DECISIA_HOSTS } from "../authorities-lite/publisher.mjs";
 
 import { DEFAULT_SERVICE_URL } from "../provider-pdf-service.mjs";
-import { keepPdf, keptPdf } from "./source-pdf-cache.mjs";
+import { keepAnswer, keepPdf, keptAnswer, keptPdf } from "./source-pdf-cache.mjs";
 
 const DIRECT_HOSTS = new Set(["api.a2aj.ca"]);
+// The page keeps A2AJ's answers for a day, as long as the runtime's own cache does, so a visit
+// after a reload does not ask A2AJ again. A lookup that failed is asked again.
+const ANSWER_TTL_MS = 24 * 60 * 60_000;
+
+async function directAnswer(url, init) {
+  const read = (init.method ?? "GET").toUpperCase() === "GET";
+  const kept = read && await keptAnswer(url.href);
+  if (kept) return new Response(kept, { headers: { "content-type": "application/json" } });
+  const response = await globalThis.fetch(url, init);
+  if (!read || !response.ok || !/json/u.test(response.headers.get("content-type") ?? "")) return response;
+  const body = await response.text();
+  keepAnswer(url.href, body, Date.now() + ANSWER_TTL_MS);
+  return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
+}
 const PUBLISHER_HOSTS = new Set([...DECISIA_HOSTS, "www.bccourts.ca", "bccourts.ca"]);
 
 async function publisherPdf(url, init) {
@@ -45,7 +59,7 @@ export async function fetch(input, init = {}) {
   const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
   const { dispatcher: _dispatcher, duplex: _duplex, redirect, ...rest } = init;
   if (DIRECT_HOSTS.has(url.hostname)) {
-    return globalThis.fetch(url, { ...rest, credentials: "omit", referrerPolicy: "no-referrer",
+    return directAnswer(url, { ...rest, credentials: "omit", referrerPolicy: "no-referrer",
       redirect: redirect === "manual" ? "follow" : redirect });
   }
   if (PUBLISHER_HOSTS.has(url.hostname)) return publisherPdf(url, rest);
