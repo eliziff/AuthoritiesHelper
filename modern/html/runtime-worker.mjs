@@ -110,18 +110,19 @@ function createResponse(id) {
 }
 
 // Mirrors the loopback server's error handler. A response already under way is broken
-// off, as the server destroys its socket, so the page does not read it as complete.
+// off, as the server destroys its socket, so the page does not read it as complete. A
+// defect is logged; a request the page itself abandoned is not one.
 function fail(response, error) {
   if (response.headersSent) {
     if (response.writableEnded) return;
-    console.error(error);
+    if (!response.abandoned) console.error(error);
     response.writableEnded = true; active.delete(response.id);
     self.postMessage({ id: response.id, type: "error", message: "Authorities stopped part-way through this response." });
     response.emit("close");
     return;
   }
   const status = error instanceof ApplicationError ? error.status : 500;
-  if (status === 500) console.error(error);
+  if (status === 500 && !response.abandoned) console.error(error);
   response.status(status).json({ detail: status === 500
     ? "Authorities could not complete that operation" : error.message });
 }
@@ -171,6 +172,7 @@ self.onmessage = async ({ data }) => {
   } else if (data.type === "request") {
     handle(data).catch((error) => fail(active.get(data.id) ?? createResponse(data.id), error));
   } else if (data.type === "abort") {
-    active.get(data.id)?.emit("close");
+    const response = active.get(data.id);
+    if (response) { response.abandoned = true; response.emit("close"); }
   }
 };
