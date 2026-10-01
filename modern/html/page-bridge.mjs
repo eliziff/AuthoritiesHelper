@@ -1,4 +1,4 @@
-import { recognizePdf, readRecognizedText } from './recognize-pdf.mjs';
+import { recognizePdf, readRecognizedText, recognitionWaiting } from './recognize-pdf.mjs';
 // Runs before the Authorities workspace in the self-contained HTML. It starts the
 // runtime Worker and answers the requests the loopback server would: the runtime
 // API and the PDF.js standard fonts. Everything else goes to the network as usual.
@@ -10,6 +10,7 @@ const payload = __AUTHORITIES_PAYLOAD__;
 globalThis.AUTHORITIES_ASSETS = payload.ocr;
 globalThis.AUTHORITIES_PDF_TEXT = {
   read: readRecognizedText,
+  waiting: recognitionWaiting,
   async prepare(product, role, file, priority, scanned, signal, completed) {
     const hash = product.state.bindings[role].lastSeen.sha256;
     const pages = scanned ? [...new Set([...(priority ?? []).filter(page=>scanned.includes(page)),...scanned])]

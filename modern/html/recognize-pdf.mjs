@@ -5,18 +5,25 @@ import { recognizePage } from '../browser-ocr/ocr.mjs';
 
 // One page at a time: queued priority pages first, then source order.
 const queue = [], sourceOrder = new Map();
+// Sources whose pages have begun, until one has no next page queued.
+const started = new Set();
 let running = false;
 function schedulePage(source, priority, run) {
   if (!sourceOrder.has(source)) sourceOrder.set(source, sourceOrder.size);
   return new Promise((resolve, reject) => {
-    queue.push({ order: sourceOrder.get(source), priority, run, resolve, reject });
+    queue.push({ source, order: sourceOrder.get(source), priority, run, resolve, reject });
     if (!running) { running = true; setTimeout(drain, 0); }
   });
 }
+/** Whether a source's pages are queued behind another source's, none of its own begun. */
+export const recognitionWaiting = (source) => !started.has(source) && queue.some(job => job.source === source);
 async function drain() {
+  // A source that queued no next page by now has finished.
+  for (const source of started) if (!queue.some(job => job.source === source)) started.delete(source);
   queue.sort((a,b) => Number(b.priority)-Number(a.priority) || a.order-b.order);
   const job = queue.shift();
   if (!job) { running = false; return; }
+  started.add(job.source);
   try { job.resolve(await job.run()); } catch (error) { job.reject(error); }
   // Let the source enqueue its next page before selecting the next job.
   setTimeout(drain, 0);
