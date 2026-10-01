@@ -68,14 +68,16 @@ export function initialMarks(findings) {
     excerpt: f.excerpt, rgb: [1, .93, .45], opacity: .3, fragments: f.fragments }));
 }
 // CanLII names its PDFs by neutral citation (2019abqb666.pdf); browsers append " (1)" to repeats.
-export const CANLII_PDF_NAME = /^(\d{4})([a-z]{2,10})(\d{1,5})(?: ?\(\d+\))?\.pdf$/i;
+const CANLII_PDF_NAME = /^(\d{4})([a-z]{2,10})(\d{1,5})(?: ?\(\d+\))?\.pdf$/i;
+// The neutral citation a CanLII file name stands for; court codes key only in capitals.
+export const canliiFileCitation = name => { const match = CANLII_PDF_NAME.exec(name);
+  return match ? `${match[1]} ${match[2].toUpperCase()} ${match[3]}` : null; };
 // Newest top-level CanLII-named PDF per citation, e.g. {citation:'2019 ABQB 666', file}; same rules as pickDownloads.
 export function canliiFiles(files) {
   const best = new Map();
   for (const file of files) {
-    const match = CANLII_PDF_NAME.exec(file.name);
-    if (!match || (file.webkitRelativePath || '').split('/').length > 2) continue;
-    const citation = `${match[1]} ${match[2].toUpperCase()} ${match[3]}`;
+    const citation = canliiFileCitation(file.name);
+    if (!citation || (file.webkitRelativePath || '').split('/').length > 2) continue;
     if (!(best.get(citation)?.lastModified >= file.lastModified)) best.set(citation, file);
   }
   return [...best].map(([citation, file]) => ({ citation, file }));
@@ -86,9 +88,9 @@ export function pickDownloads(files, records, engine) {
   for (const r of records) if (!r.document) for (const c of r.aliases) { const identity = key(c, engine); if (identity) wanted.set(identity, r); }
   const best = new Map();
   for (const file of files) {
-    const match = CANLII_PDF_NAME.exec(file.name);
-    if (!match || (file.webkitRelativePath || '').split('/').length > 2) continue;
-    const record = wanted.get(key(match.slice(1, 4).join(' '), engine));
+    const citation = canliiFileCitation(file.name);
+    if (!citation || (file.webkitRelativePath || '').split('/').length > 2) continue;
+    const record = wanted.get(key(citation, engine));
     if (record && !(best.get(record)?.lastModified >= file.lastModified)) best.set(record, file);
   }
   return [...best].map(([record, file]) => ({ record, file }));

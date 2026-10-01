@@ -1,7 +1,7 @@
 import {useRef,useState,useSyncExternalStore} from 'react';import {createRoot} from 'react-dom/client';import {flushSync} from 'react-dom';
-import {AlertTriangle,CheckCircle2,Circle,Download,ExternalLink,Eye,FilePlus2,FileText,FolderSearch,ArrowLeft,Globe,Highlighter,Loader2,Redo2,SquareDashed,TextSelect,Undo2,Search,Square,X} from 'lucide-react';
+import {AlertTriangle,CheckCircle2,Circle,Download,ExternalLink,Eye,FilePlus2,FileText,FolderSearch,ArrowLeft,Globe,Highlighter,Loader2,Redo2,Settings,SquareDashed,TextSelect,Undo2,Search,Square,X} from 'lucide-react';
 import {createEngine} from './engine.mjs';import {bytes} from './assets.mjs';
-import {parseInstructions,key,targetLabel,pickDownloads,canliiFiles,CANLII_PDF_NAME} from './domain.mjs';
+import {parseInstructions,key,targetLabel,pickDownloads,canliiFiles,canliiFileCitation} from './domain.mjs';
 import {canliiPdf,resolveRecord,retrievePdf,download,makeZip,DEFAULT_SERVICE_URL} from './client.mjs';
 import {inspectPdf,verifyIdentity,headerIdentities,attachFindings,exportPdf} from './pdf.mjs';import {makeViewer} from './viewer.mjs';
 import {PdfPageNavigation} from '../vendor/beaver/frontend/src/app/components/shared/views/PdfPageNavigation.tsx';
@@ -50,7 +50,7 @@ async function upload(files,explicit){
   for(const file of Array.from(files)){
    if(controller.signal.aborted)break;if(!/\.pdf$/i.test(file.name)){notice(`${file.name}: select a PDF file.`);continue;}
    let record=explicit;
-   if(!record){const filename=CANLII_PDF_NAME.exec(file.name),name=filename?key(filename.slice(1,4).join(' '),engine):null;const matches=name?keyedRecords.filter(r=>r.keys.has(name)).map(r=>r.record):[];if(matches.length===1)record=matches[0];}
+   if(!record){const filename=canliiFileCitation(file.name),name=filename?key(filename,engine):null;const matches=name?keyedRecords.filter(r=>r.keys.has(name)).map(r=>r.record):[];if(matches.length===1)record=matches[0];}
    working=record;try{
     const data=new Uint8Array(await file.arrayBuffer());
     if(record){if(record.document&&!confirm(`Replace the PDF and highlights for ${record.citation}?`))continue;await bind(record,data,controller.signal);}
@@ -72,6 +72,10 @@ async function downloadAll(){setBusy(true);try{const files=[];for(const r of rec
 // adding each CanLII-named PDF as it lands until the tab closes or the button is clicked again.
 // Browsers without that API get a one-time <input webkitdirectory> read.
 const WATCH_INTERVAL=2000;let watched=null,watchTimer=null,scanning=false;const seen=new Set();
+// Per-viewer choice: take folder PDFs only for pasted authorities, never adding new rows.
+const ONLY_LISTED='authorities-lite.only-pasted-list';
+let onlyListed=(()=>{try{return localStorage.getItem(ONLY_LISTED)==='1';}catch{return false;}})();
+function setOnlyListed(value){onlyListed=value;try{localStorage.setItem(ONLY_LISTED,value?'1':'0');}catch{}emit();}
 function stopWatching(text){clearInterval(watchTimer);watchTimer=null;watched=null;if(text)notice(text);else emit();}
 async function scanWatched(first=false){
  if(!watched||scanning||busy)return;scanning=true;
@@ -91,7 +95,7 @@ async function fetchFromFolder(){if(busy)return;
 async function addFromFolder(files,quiet=false){const picks=pickDownloads(files,records,engine),picked=new Set(picks.map(p=>p.file));
  // CanLII PDFs with no listed authority to bind to become their own entries, citation taken from the filename; bind() still runs the first-page citation check.
  const known=new Set(records.flatMap(r=>r.aliases.map(c=>key(c,engine))).filter(Boolean));
- const extras=[];for(const {citation,file} of canliiFiles(files)){const identity=key(citation,engine);if(picked.has(file)||!identity||known.has(identity))continue;
+ const extras=[];if(!onlyListed)for(const {citation,file} of canliiFiles(files)){const identity=key(citation,engine);if(picked.has(file)||!identity||known.has(identity))continue;
   let r;try{r=parseInstructions(citation,engine)[0];}catch{}if(r&&!records.some(a=>a.id===r.id)){records.push(r);known.add(identity);extras.push({record:r,file});}}
  if(extras.length)emit();const all=[...picks,...extras];
  if(!all.length)return quiet?undefined:notice('No PDF in that folder is named like a CanLII citation (e.g. 2019abqb666.pdf)'+(records.some(r=>!r.document)?' for a missing authority.':'.'));
@@ -187,7 +191,7 @@ function ViewerShell(){
 
 function App(){
  useSyncExternalStore(l=>{listeners.add(l);return()=>listeners.delete(l);},()=>version);
- const pdfInput=useRef(null),folderInput=useRef(null),timer=useRef(0),[over,setOver]=useState(false),[text,setText]=useState(paste);
+ const pdfInput=useRef(null),folderInput=useRef(null),fetchSettings=useRef(null),timer=useRef(0),[over,setOver]=useState(false),[text,setText]=useState(paste);
  pickPdfs=()=>pdfInput.current?.click();pickFolder=()=>folderInput.current?.click();
  const onPaste=value=>{setText(value);paste=value;clearTimeout(timer.current);timer.current=setTimeout(()=>parse().catch(e=>notice(e.message)),300);};
  const ready=records.filter(r=>r.enabled&&r.document).length;
@@ -199,6 +203,8 @@ function App(){
      title={watched?'Stop watching this folder':'Choose a folder once; PDFs named like 2019abqb666.pdf that are saved there are added to their authorities as they arrive.'}
      className={cx('border-gray-400',watched&&'border-brand bg-brand-soft text-brand-dark hover:bg-red-100')}>
      {watched?<><Loader2 className="motion-safe:animate-spin"/>Watching {watched.name}<Square className="fill-current"/></>:<><FolderSearch/>Auto-fetch from folder</>}</Button>
+    <Button variant="outline" aria-label="Auto-fetch settings" title="Auto-fetch settings" className="w-9 border-gray-400 px-0"
+     onClick={()=>fetchSettings.current?.showModal()}><Settings/></Button>
     <Button disabled={busy||!ready} onClick={downloadAll}><Download/>Download all</Button>
    </div>
   </header>
@@ -224,6 +230,13 @@ function App(){
    </Card>
   </main>
   <input ref={pdfInput} type="file" accept="application/pdf,.pdf" multiple hidden onChange={e=>{const files=Array.from(e.target.files);e.target.value='';upload(files,activeRecord);}}/>
+  <dialog ref={fetchSettings} aria-label="Auto-fetch settings" className="m-auto w-[min(24rem,calc(100vw-2rem))] rounded-xl border border-gray-300 bg-white p-0 text-gray-950 shadow-lg backdrop:bg-gray-950/30">
+   <form method="dialog" className="grid gap-4 p-4">
+    <h2 className="font-semibold">Auto-fetch</h2>
+    <label className="flex cursor-pointer items-center gap-2.5 text-sm"><input type="checkbox" className="size-[18px] accent-gray-950" checked={onlyListed} onChange={e=>setOnlyListed(e.target.checked)}/>Only auto-fetch cases from pasted list</label>
+    <div className="flex justify-end"><Button type="submit">Done</Button></div>
+   </form>
+  </dialog>
   <input ref={folderInput} type="file" webkitdirectory="" hidden onChange={e=>{const files=Array.from(e.target.files);e.target.value='';addFromFolder(files);}}/>
  </div>;
 }
