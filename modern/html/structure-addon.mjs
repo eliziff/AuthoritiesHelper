@@ -121,18 +121,20 @@ export function createStructureAddon(instantiate, toBuffer = (bytes) => bytes, r
   }
   async function invokeAsync(name, positional) {
     if (recognizePdf && ["preparePdfDocument", "derivePdfDocument"].includes(name) && positional[1]?.ocr) {
-      const [bytes, request, signal] = positional;
+      const [bytes, request, signal, progress] = positional;
       signal?.throwIfAborted();
       const { ocr, ...plain } = request;
       const inspected = invoke("preparePdfDocument", [bytes, plain]);
       const pages = inspected.pagesNeedingOcr.filter(index => !request.pages || request.pages.includes(index + 1));
-      const supplied = pages.length ? await recognizePdf(bytes, inspected.sha256, pages, signal) : undefined;
+      const supplied = pages.length ? await recognizePdf(bytes, inspected.sha256, pages, signal,
+        progress && (done => progress(done, pages.length))) : undefined;
       signal?.throwIfAborted();
       return invoke(name, [bytes, { ...plain, ...(supplied ? { supplied_ocr: supplied } : {}) }]);
     }
     return invoke(name, positional);
   }
-  const addon = {};
+  // The page reads every pass's pages on its own pool of recognizers, so passes need not wait their turn.
+  const addon = { schedulesRecognition: !!recognizePdf };
   for (const name of Object.keys(SIGNATURES)) addon[name] = ASYNC.has(name)
     ? (...positional) => invokeAsync(name, positional)
     : (...positional) => invoke(name, positional);

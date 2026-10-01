@@ -1,7 +1,7 @@
 // Rendering/recognition adapter; the Rust parser still owns page selection and structure.
 import { getDocument, PDFWorker } from 'pdfjs-dist/build/pdf.mjs';
 import { assetURL } from '../browser-ocr/assets.mjs';
-import { recognizePage } from '../browser-ocr/ocr.mjs';
+import { OCR_PARALLEL, recognizePage } from '../browser-ocr/ocr.mjs';
 
 // PDF.js decodes pages in its own worker. Started from a file:// page, PDF.js cannot load the worker
 // itself (it wraps the script in a blob:null module that may not import another) and silently runs
@@ -9,30 +9,34 @@ import { recognizePage } from '../browser-ocr/ocr.mjs';
 let pdfWorker;
 const worker = () => pdfWorker ??= new PDFWorker({ port: new Worker(assetURL('pdfWorker'), { type: 'module' }) });
 
-// One page at a time: queued priority pages first, then source order.
+// As many pages at once as there are recognizers: queued priority pages first, then source order.
 const queue = [], sourceOrder = new Map();
-// Sources whose pages have begun, until one has no next page queued.
+// Sources whose pages have begun, until one has no page queued or being read.
 const started = new Set();
-let running = false;
+let running = 0;
 function schedulePage(source, priority, run) {
   if (!sourceOrder.has(source)) sourceOrder.set(source, sourceOrder.size);
   return new Promise((resolve, reject) => {
     queue.push({ source, order: sourceOrder.get(source), priority, run, resolve, reject });
-    if (!running) { running = true; setTimeout(drain, 0); }
+    setTimeout(drain, 0);
   });
 }
 /** Whether a source's pages are queued behind another source's, none of its own begun. */
 export const recognitionWaiting = (source) => !started.has(source) && queue.some(job => job.source === source);
-async function drain() {
-  // A source that queued no next page by now has finished.
-  for (const source of started) if (!queue.some(job => job.source === source)) started.delete(source);
+const reading = new Map();
+function drain() {
+  // A source with no page queued or being read by now has finished.
+  for (const source of started) if (!reading.get(source) && !queue.some(job => job.source === source)) started.delete(source);
   queue.sort((a,b) => Number(b.priority)-Number(a.priority) || a.order-b.order);
-  const job = queue.shift();
-  if (!job) { running = false; return; }
-  started.add(job.source);
-  try { job.resolve(await job.run()); } catch (error) { job.reject(error); }
-  // Let the source enqueue its next page before selecting the next job.
-  setTimeout(drain, 0);
+  while (running < OCR_PARALLEL && queue.length) {
+    const job = queue.shift();
+    running += 1; started.add(job.source); reading.set(job.source, (reading.get(job.source) ?? 0) + 1);
+    job.run().then(job.resolve, job.reject).finally(() => {
+      running -= 1; reading.set(job.source, reading.get(job.source) - 1);
+      // Let the source enqueue its next page before selecting the next job.
+      setTimeout(drain, 0);
+    });
+  }
 }
 export async function recognizePdf(bytes, sourceSha256, pages, signal, completed = () => {}, priorityPages = pages, order) {
   signal?.throwIfAborted();
@@ -48,13 +52,11 @@ export async function recognizePdf(bytes, sourceSha256, pages, signal, completed
   try {
     if (!pages) pages = Array.from({length:(await pdfDocument()).numPages},(_,index)=>index);
     completed(pages.filter(index=>retained.has(index)).length);
-    for (const page_index of pages) {
+    await Promise.all(pages.filter(page_index => !retained.has(page_index)).map(async page_index => {
       signal?.throwIfAborted();
-      if (retained.has(page_index)) continue;
       const result = schedulePage(sourceSha256, priorityPages?.includes(page_index) ?? false, async () => {
       signal?.throwIfAborted();
-      const current = await readCache(key);
-      const found = current?.pages.find(page=>page.page_index===page_index);
+      const found = (await readCache(key))?.pages.find(page=>page.page_index===page_index);
       if (found) return found;
       const page = await (await pdfDocument()).getPage(page_index + 1);
       const raw = page.view, rotated = page.rotate % 180 !== 0;
@@ -75,13 +77,13 @@ export async function recognizePdf(bytes, sourceSha256, pages, signal, completed
           bbox: [x(line.x), y(line.y), x(line.x + line.width), y(line.y + line.height)],
         })) };
         signal?.throwIfAborted();
-        await writeCache(key, {source_sha256:sourceSha256,pages:[...(current?.pages ?? []),result]});
+        await addCachedPage(key, sourceSha256, result);
         return result;
       } finally { canvas.width = canvas.height = 1; page.cleanup(); }
       });
       retained.set(page_index,await result);
       completed(pages.filter(index=>retained.has(index)).length);
-    }
+    }));
     signal?.throwIfAborted();
     return { source_sha256: sourceSha256, pages: pages.map(page => retained.get(page)) };
   } finally { await task?.destroy(); }
@@ -132,6 +134,16 @@ async function readCache(key) {
     if(value)remember(key,value);
     return value;
   } catch { return null; }
+}
+// Pages of one source finish side by side; each is added to the latest record, never a stale one.
+const adding = new Map();
+function addCachedPage(key, sourceSha256, result) {
+  const next = (adding.get(key) ?? Promise.resolve()).then(async () => {
+    const pages = ((await readCache(key))?.pages ?? []).filter(page => page.page_index !== result.page_index);
+    await writeCache(key, { source_sha256: sourceSha256, pages: [...pages, result] });
+  });
+  adding.set(key, next.catch(() => {}));
+  return next;
 }
 async function writeCache(key, value) {
   remember(key,value);

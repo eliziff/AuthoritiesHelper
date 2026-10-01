@@ -17,7 +17,7 @@ const PREFIX = "/api/authorities-runtime";
 let engineModule;
 let recognitionId = 0;
 const recognition = new Map();
-function recognizePdf(bytes, sourceSha256, pages, signal) {
+function recognizePdf(bytes, sourceSha256, pages, signal, completed) {
   const id = ++recognitionId;
   return new Promise((resolve, reject) => {
     const abort = () => {
@@ -26,7 +26,7 @@ function recognizePdf(bytes, sourceSha256, pages, signal) {
       reject(new DOMException('Recognition cancelled', 'AbortError'));
     };
     signal?.addEventListener('abort', abort, { once: true });
-    recognition.set(id, { resolve, reject, cleanup: () => signal?.removeEventListener('abort', abort) });
+    recognition.set(id, { resolve, reject, completed, cleanup: () => signal?.removeEventListener('abort', abort) });
     const copy = Uint8Array.from(bytes);
     self.postMessage({ type: 'recognize', id, bytes: copy, sourceSha256, pages }, [copy.buffer]);
   });
@@ -149,7 +149,8 @@ async function handle({ id, method, path, headers, body, json, form }) {
 }
 
 self.onmessage = async ({ data }) => {
-  if (data.type === "recognized") {
+  if (data.type === "recognize-progress") recognition.get(data.id)?.completed?.(data.recognized);
+  else if (data.type === "recognized") {
     const pending = recognition.get(data.id);
     if (!pending) return;
     recognition.delete(data.id); pending.cleanup();

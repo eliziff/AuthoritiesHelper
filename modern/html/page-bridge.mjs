@@ -38,7 +38,8 @@ const ready = new Promise((resolve, reject) => {
     if (data.type === "cancel-recognition") { recognition.get(data.id)?.abort(); return; }
     if (data.type === "recognize") {
       const controller = new AbortController(); recognition.set(data.id, controller);
-      recognizePdf(data.bytes, data.sourceSha256, data.pages, controller.signal).then(
+      recognizePdf(data.bytes, data.sourceSha256, data.pages, controller.signal,
+        recognized => worker.postMessage({ type: 'recognize-progress', id: data.id, recognized })).then(
         result => worker.postMessage({ type: 'recognized', id: data.id, result }),
         error => worker.postMessage({ type: 'recognized', id: data.id, error: error.message })).finally(() => recognition.delete(data.id));
       return;

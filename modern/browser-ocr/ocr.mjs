@@ -4,8 +4,11 @@ import { orderLayoutLines } from '../vendor/ocr-source/layout-order.js';
 import { positionedLines } from '../vendor/ocr-source/text-layer.js';
 import { bytes, assetURL, textAsset } from './assets.mjs';
 
-let singleton;
-export function disposeOCR() { singleton?.dispose(); singleton = undefined; }
+// Each recognizer reads one page at a time on its own workers, so pages are read side by side by
+// as many recognizers as the machine has cores to spare; each is small (a 0.7 MB model).
+export const OCR_PARALLEL = Math.max(1, Math.min(4, Math.floor((globalThis.navigator?.hardwareConcurrency ?? 2) / 2)));
+const idle = [];
+let created = 0;
 class QualityOCR {
   constructor() {
     this.layout = new TesseractLayout({ workerPath: assetURL('layoutWorker'), corePath: assetURL('layoutCore'),
@@ -56,13 +59,16 @@ class QualityOCR {
 }
 export async function recognizePage(canvas, signal) {
   signal?.throwIfAborted();
-  if (!singleton) singleton = new QualityOCR();
-  let abort;
+  const ocr = idle.pop() ?? (created++, new QualityOCR());
+  let abort, healthy = false;
   const cancelled = new Promise((_, reject) => {
-    abort = () => { disposeOCR(); reject(signal.reason); };
+    abort = () => reject(signal.reason);
     signal?.addEventListener('abort', abort, { once: true });
   });
-  try { return await Promise.race([singleton.recognize(canvas, signal), cancelled]); }
-  catch (error) { disposeOCR(); throw error; }
-  finally { signal?.removeEventListener('abort', abort); }
+  try { const lines = await Promise.race([ocr.recognize(canvas, signal), cancelled]); healthy = true; return lines; }
+  finally {
+    signal?.removeEventListener('abort', abort);
+    // A recognizer stopped mid-page is discarded with its workers; a finished one waits for the next page.
+    if (healthy && created <= OCR_PARALLEL) idle.push(ocr); else { ocr.dispose(); created -= 1; }
+  }
 }
