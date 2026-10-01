@@ -1,7 +1,13 @@
 // Rendering/recognition adapter; the Rust parser still owns page selection and structure.
-import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist/build/pdf.mjs';
+import { getDocument, PDFWorker } from 'pdfjs-dist/build/pdf.mjs';
 import { assetURL } from '../browser-ocr/assets.mjs';
 import { recognizePage } from '../browser-ocr/ocr.mjs';
+
+// PDF.js decodes pages in its own worker. Started from a file:// page, PDF.js cannot load the worker
+// itself (it wraps the script in a blob:null module that may not import another) and silently runs
+// it on the main thread, where decoding a scanned page blocks the page for hundreds of ms.
+let pdfWorker;
+const worker = () => pdfWorker ??= new PDFWorker({ port: new Worker(assetURL('pdfWorker'), { type: 'module' }) });
 
 // One page at a time: queued priority pages first, then source order.
 const queue = [], sourceOrder = new Map();
@@ -34,10 +40,9 @@ export async function recognizePdf(bytes, sourceSha256, pages, signal, completed
   const key = `${__OCR_RUNTIME_SHA256__}:${sourceSha256}`;
   const cached = await readCache(key);
   const retained = new Map((cached?.pages ?? []).map(page => [page.page_index, page]));
-  GlobalWorkerOptions.workerSrc = assetURL('pdfWorker');
   let task;
   const pdfDocument = async () => {
-    task ??= getDocument({ data: bytes, isEvalSupported: false, useSystemFonts: true });
+    task ??= getDocument({ data: bytes, isEvalSupported: false, useSystemFonts: true, worker: worker() });
     return task.promise;
   };
   try {
