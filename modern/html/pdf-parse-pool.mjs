@@ -137,20 +137,33 @@ async function digest(bytes) {
   return [...hash].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
+// What each parse of a source answered, by request, kept with its cache files: a request whose
+// document is still cached is answered from here, without a parser.
+const answersPath = (sha256) => `/parse-answers/${sha256}.json`;
+function answered(sha256) {
+  try { return JSON.parse(fs.readFileSync(answersPath(sha256), "utf8")); } catch { return {}; }
+}
+function known(sha256, request) {
+  const summary = answered(sha256)[request];
+  return summary && [...kept.get(sha256) ?? []].some((path) =>
+    path.endsWith(`/${summary.cacheKey}.json.gz`) && fs.existsSync(path)) ? summary : undefined;
+}
+
 // Parses under way, by source and request: a second asker waits for the first's.
 const parsing = new Map();
 
-async function parse(sha256, bytes, request, signal) {
+async function parse(sha256, bytes, request, requestKey, signal) {
   await seed(sha256);
   signal?.throwIfAborted();
+  const cached = known(sha256, requestKey);
+  if (cached) return cached;
   const { summary, files } = await run({ sha256, bytes: new Uint8Array(bytes), request, signal });
-  if (files.length) {
-    keep(sha256, files);
-    unstored.delete(sha256);
-    const stored = [...kept.get(sha256)].map((path) => [path, new Uint8Array(fs.readFileSync(path))]);
-    self.postMessage({ type: "parse-cache", op: "put", sha256, files: stored },
-      stored.map(([, content]) => content.buffer));
-  }
+  keep(sha256, [...files, [answersPath(sha256),
+    new TextEncoder().encode(JSON.stringify({ ...answered(sha256), [requestKey]: summary }))]]);
+  unstored.delete(sha256);
+  const stored = [...kept.get(sha256)].map((path) => [path, new Uint8Array(fs.readFileSync(path))]);
+  self.postMessage({ type: "parse-cache", op: "put", sha256, files: stored },
+    stored.map(([, content]) => content.buffer));
   return summary;
 }
 
@@ -166,11 +179,17 @@ export const pdfParser = {
   /** preparePdfDocument, in a parse Worker. */
   async prepare(bytes, request, signal) {
     const sha256 = request.expected_source_sha256 ?? await digest(bytes);
-    const { id: _id, ...parsed } = request, key = `${sha256}\0${JSON.stringify(parsed)}`;
+    const { id: _id, ...parsed } = request;
+    const requestKey = await digest(new TextEncoder().encode(JSON.stringify(parsed)));
+    if (kept.has(sha256)) {
+      const cached = known(sha256, requestKey);
+      if (cached) return cached;
+    }
+    const key = `${sha256}:${requestKey}`;
     let pending = parsing.get(key);
     if (!pending) {
       // Shared, so not cancelled by one asker: it settles once its parse does.
-      pending = parse(sha256, bytes, request).finally(() => parsing.delete(key));
+      pending = parse(sha256, bytes, request, requestKey).finally(() => parsing.delete(key));
       parsing.set(key, pending);
     }
     return signal ? Promise.race([pending, new Promise((_, reject) => {
