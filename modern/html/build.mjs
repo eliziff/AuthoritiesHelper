@@ -17,6 +17,7 @@ import { pathToFileURL } from "node:url";
 import { gzipSync } from "node:zlib";
 import { assertStandaloneFrontendModules } from "../scripts/authorities-package/bundle.mjs";
 import { bundleRuntime } from "./runtime-bundle.mjs";
+import { SIGNATURES } from "./structure-addon.mjs";
 
 const here = import.meta.dirname, repo = path.resolve(here, "../../.."), frontend = path.join(repo, "frontend");
 const engineCrate = path.join(repo, "native/legal-structure-node");
@@ -66,6 +67,10 @@ const inline = (code) => code.replaceAll("</script", "<\\/script");
  *  crate, its dependencies and std) mapped off this machine. Its own target directory keeps
  *  these flags from invalidating other builds of the crate. */
 function buildEngine() {
+  // Every operation the engine answers must be callable from the page, or the runtime fails at first use.
+  const operations = [...readFileSync(path.join(engineCrate, "src/wasi.rs"), "utf8").matchAll(/^\s*"(\w+)" =>/gmu)]
+    .map(([, name]) => name).filter((name) => name !== "releaseDocument" && !(name in SIGNATURES));
+  assert.deepEqual(operations, [], `structure-addon.mjs lacks engine operations: ${operations.join(", ")}`);
   const home = homedir(), mappings = [[home, "/home"],
     [process.env.RUSTUP_HOME ?? path.join(home, ".rustup"), "/rustup"],
     [process.env.CARGO_HOME ?? path.join(home, ".cargo"), "/cargo"], [repo, "/beaver"]];

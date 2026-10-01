@@ -8,7 +8,7 @@ const ASYNC = new Set(["deriveDocumentStructure", "deriveDocumentFingerprint",
   "pdfPassageGeometryPages"]);
 // Positional Node-API arguments, named as the WebAssembly binding reads them.
 // "bytes" travels as raw bytes; "document" is a handle.
-const SIGNATURES = {
+export const SIGNATURES = {
   nativeBuildFeatures: [],
   deriveDocumentStructure: ["request"], deriveDocumentFingerprint: ["request"],
   fixDocxSupraCrossReferences: ["bytes"], hasDocxSupraReferences: ["bytes"],
@@ -17,7 +17,7 @@ const SIGNATURES = {
   derivePdfDocument: ["bytes", "request"], preparePdfDocument: ["bytes", "request"],
   restorePdfDocument: ["request"],
   pdfDocumentSummary: ["document"], pdfRecognizedText: ["document", "pages"],
-  pdfAuthorityTextUnits: ["document"], pdfPageLabels: ["document"],
+  pdfAuthorityTextUnits: ["document"], pdfPageLabels: ["document"], pdfPageTexts: ["document"],
   pdfPassageGeometryPages: ["document", "targets"],
   pdfLookupUnitSpans: ["document", "ids"],
   queryPdfDocument: ["document", "locatorKind", "locator", "endLocator", "contextBlocks", "page", "occurrence"],
@@ -26,6 +26,7 @@ const SIGNATURES = {
   readDocumentTextWindow: ["document", "offset", "startChar", "limit"],
   readDocumentTextRange: ["document", "start", "end", "offset", "limit"],
   documentFingerprint: ["document"], documentAnchors: ["document", "end"],
+  documentOutline: ["document", "legislation"],
   legalSourceViewer: ["document", "primaryKind", "limit"], documentTableCells: ["document"], textLayout: ["text"],
   citationLookupKey: ["text"], citationLookupKeys: ["texts"], providerCitationsInText: ["text"],
   citationEngineCall: ["method", "request"],
