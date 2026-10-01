@@ -56,12 +56,19 @@ class EngineError extends Error {}
 /** An opaque engine document, released when JavaScript no longer references it. */
 class NativeDocumentHandle { constructor(handle, generation) { this.handle = handle; this.generation = generation; } }
 
+/** Readies an engine before its first real call: the citation engine builds its grammars on first use. */
+export const warmStructureAddon = (addon) => addon.citationEngineCall("extract",
+  JSON.stringify({ text: "R v Oakes, [1986] 1 SCR 103", offsetUnit: "utf16", options: { resolve: false } }));
+
 /**
  * @param {() => { instance: WebAssembly.Instance, panic: () => string }} instantiate
  *   a fresh WASI-initialized engine and the panic text it last wrote to stderr
  * @param {(bytes: Uint8Array) => Uint8Array} toBuffer wraps result bytes as the host's Buffer
+ * @param recognizePdf the host's recognizer of scanned pages
+ * @param {{ prepare(bytes, request, signal): Promise<object>, seed(sha256): Promise<void> }} [parser]
+ *   prepares PDFs elsewhere, writing the parse cache where this engine reads it
  */
-export function createStructureAddon(instantiate, toBuffer = (bytes) => bytes, recognizePdf) {
+export function createStructureAddon(instantiate, toBuffer = (bytes) => bytes, recognizePdf, parser) {
   const encoder = new TextEncoder(), decoder = new TextDecoder();
   // A Rust panic traps the instance and leaves its memory unusable; the next call starts
   // a new one. Documents belong to the instance that made them.
@@ -119,19 +126,31 @@ export function createStructureAddon(instantiate, toBuffer = (bytes) => bytes, r
     if (name === "fixDocxSupraCrossReferences") return { ...value, bytes: toBuffer(out) };
     return value;
   }
+  // A host parser prepares PDFs off this engine's thread and leaves the parse cache readable here.
+  const prepare = (bytes, request, signal) => parser
+    ? parser.prepare(bytes, request, signal) : invoke("preparePdfDocument", [bytes, request]);
   async function invokeAsync(name, positional) {
-    if (recognizePdf && ["preparePdfDocument", "derivePdfDocument"].includes(name) && positional[1]?.ocr) {
-      const [bytes, request, signal, progress] = positional;
-      signal?.throwIfAborted();
+    if (name === "restorePdfDocument") await parser?.seed(positional[0]?.expected_source_sha256);
+    if (!["preparePdfDocument", "derivePdfDocument"].includes(name)) return invoke(name, positional);
+    const [bytes, request, signal, progress] = positional;
+    signal?.throwIfAborted();
+    let final = request;
+    if (recognizePdf && request?.ocr) {
       const { ocr, ...plain } = request;
-      const inspected = invoke("preparePdfDocument", [bytes, plain]);
+      const inspected = await prepare(bytes, plain, signal);
       const pages = inspected.pagesNeedingOcr.filter(index => !request.pages || request.pages.includes(index + 1));
       const supplied = pages.length ? await recognizePdf(bytes, inspected.sha256, pages, signal,
         progress && (done => progress(done, pages.length))) : undefined;
       signal?.throwIfAborted();
-      return invoke(name, [bytes, { ...plain, ...(supplied ? { supplied_ocr: supplied } : {}) }]);
+      final = { ...plain, ...(supplied ? { supplied_ocr: supplied } : {}) };
     }
-    return invoke(name, positional);
+    if (!parser) return invoke(name, [bytes, final]);
+    const summary = await parser.prepare(bytes, final, signal);
+    if (name === "preparePdfDocument") return summary;
+    // The parse is cached: this engine reads the document from that cache.
+    const { ocr: _ocr, supplied_ocr: _supplied, ...cached } = final;
+    return invoke("restorePdfDocument", [{ ...cached, cache_key: summary.cacheKey,
+      expected_source_sha256: summary.sha256 }]) ?? invoke(name, [bytes, final]);
   }
   // The page reads every pass's pages on its own pool of recognizers, so passes need not wait their turn.
   const addon = { schedulesRecognition: !!recognizePdf };

@@ -37,13 +37,19 @@ export const browserRuntime = {
 
 export async function bundleRuntime() {
   const { build } = createRequire(path.join(backend, "package.json"))("esbuild");
-  const result = await build({
-    absWorkingDir: backend, entryPoints: [own("runtime-worker.mjs")], bundle: true, write: false,
+  const options = {
+    absWorkingDir: backend, bundle: true, write: false,
     platform: "browser", format: "iife", target: "es2022", minify: true, legalComments: "none",
-    metafile: true, mainFields: ["browser", "module", "main"], conditions: ["worker", "browser"],
-    // Server code locates siblings from its own directory; the runtime has one virtual root.
-    define: { "process.env.NODE_ENV": '"production"', __dirname: '"/app"', __filename: '"/app/runtime.js"' },
+    mainFields: ["browser", "module", "main"], conditions: ["worker", "browser"],
     inject: [own("node/globals.mjs")], plugins: [localOnly, browserRuntime], logLevel: "warning",
+  };
+  // The Worker that parses PDFs beside the runtime, which starts it from this source.
+  const parser = await build({ ...options, entryPoints: [own("parse-worker.mjs")],
+    define: { "process.env.NODE_ENV": '"production"' } });
+  const result = await build({ ...options, entryPoints: [own("runtime-worker.mjs")], metafile: true,
+    // Server code locates siblings from its own directory; the runtime has one virtual root.
+    define: { "process.env.NODE_ENV": '"production"', __dirname: '"/app"', __filename: '"/app/runtime.js"',
+      __PARSE_WORKER__: JSON.stringify(parser.outputFiles[0].text) },
   });
   const inputs = Object.keys(result.metafile.inputs).map((file) => file.replaceAll("\\", "/"));
   for (const file of backendRequired)

@@ -5,11 +5,12 @@ import { Buffer } from "buffer";
 import fs from "./node/fs.mjs";
 import { ENGINE_PATH, process } from "./node/globals.mjs";
 import { createWasi } from "./wasi.mjs";
-import { createStructureAddon } from "./structure-addon.mjs";
+import { createStructureAddon, warmStructureAddon } from "./structure-addon.mjs";
 import { ApplicationError } from "../../../backend/src/lib/applicationError";
 import { createAuthoritiesRuntimeRouter } from "../../../backend/src/routes/authoritiesRuntime";
 import { structureNative } from "../../../backend/src/lib/structureNative";
 import { pageAnswered } from "./source-pdf-cache.mjs";
+import { parseCacheAnswered, pdfParser } from "./pdf-parse-pool.mjs";
 
 const PREFIX = "/api/authorities-runtime";
 
@@ -28,7 +29,7 @@ function recognizePdf(bytes, sourceSha256, pages, signal, completed) {
     };
     signal?.addEventListener('abort', abort, { once: true });
     recognition.set(id, { resolve, reject, completed, cleanup: () => signal?.removeEventListener('abort', abort) });
-    const copy = Uint8Array.from(bytes);
+    const copy = new Uint8Array(bytes);
     self.postMessage({ type: 'recognize', id, bytes: copy, sourceSha256, pages }, [copy.buffer]);
   });
 }
@@ -44,13 +45,14 @@ process.dlopen = (module, filename) => {
     // The panic hook writes "thread ... panicked at file:line:\nmessage".
     return { instance, close: wasi.close,
       panic: () => stderr.split(/panicked at [^\n]*\n/u).at(-1).trim().split("\n")[0] ?? "" };
-  }, (bytes) => Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength), recognizePdf);
+  }, (bytes) => Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength), recognizePdf, pdfParser);
 };
 
 async function loadEngine(base64) {
   const gzipped = Uint8Array.from(atob(base64), (character) => character.charCodeAt(0));
   const stream = new Blob([gzipped]).stream().pipeThrough(new DecompressionStream("gzip"));
   engineModule = await WebAssembly.compile(await new Response(stream).arrayBuffer());
+  pdfParser.start(engineModule);
   // structureNative() checks that its engine file exists before loading it.
   fs.mkdirSync("/engine", { recursive: true });
   fs.writeFileSync(ENGINE_PATH, "");
@@ -151,6 +153,7 @@ async function handle({ id, method, path, headers, body, json, form }) {
 
 self.onmessage = async ({ data }) => {
   if (data.type === "source-pdf" || data.type === "source-answer") pageAnswered(data);
+  else if (data.type === "parse-cache") parseCacheAnswered(data);
   else if (data.type === "recognize-progress") recognition.get(data.id)?.completed?.(data.recognized);
   else if (data.type === "recognized") {
     const pending = recognition.get(data.id);
@@ -170,8 +173,11 @@ self.onmessage = async ({ data }) => {
       return;
     }
     self.postMessage({ type: "ready" });
-    // Instantiate the engine now, while the user chooses a file, not during their first import.
-    setTimeout(() => { try { structureNative().nativeBuildFeatures(); } catch (error) { console.error(error); } });
+    // Ready the engine and a PDF parser now, while the user chooses a file, not during their first import.
+    // The parser starts first: its Worker cannot receive the engine while this thread is busy.
+    pdfParser.warm().then(() => {
+      try { warmStructureAddon(structureNative()); } catch (error) { console.error(error); }
+    });
   } else if (data.type === "request") {
     handle(data).catch((error) => fail(active.get(data.id) ?? createResponse(data.id), error));
   } else if (data.type === "abort") {

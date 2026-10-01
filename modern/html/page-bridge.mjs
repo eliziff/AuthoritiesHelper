@@ -1,4 +1,5 @@
 import { recognizePdf, readRecognizedText, recognitionWaiting } from './recognize-pdf.mjs';
+import { readParseCache, writeParseCache } from './parse-cache-store.mjs';
 // Runs before the Authorities workspace in the self-contained HTML. It starts the
 // runtime Worker and answers the requests the loopback server would: the runtime
 // API and the PDF.js standard fonts. Everything else goes to the network as usual.
@@ -48,6 +49,13 @@ const ready = new Promise((resolve, reject) => {
     if (data.type === "source-pdf") {
       Promise.resolve(globalThis.AUTHORITIES_SOURCE_PDFS?.read(data.url)).catch(() => null).then((bytes) =>
         worker.postMessage({ type: "source-pdf", id: data.id, bytes: bytes ?? null }, bytes ? [bytes.buffer] : []));
+      return;
+    }
+    // The engine's parse cache, kept by source hash for later visits.
+    if (data.type === "parse-cache") {
+      if (data.op === "put") { writeParseCache(data.sha256, data.files); return; }
+      readParseCache(data.sha256).then((files) => worker.postMessage({ type: "parse-cache", id: data.id, files },
+        (files ?? []).map(([, content]) => content.buffer)));
       return;
     }
     if (data.type === "source-pdf-fetched") {
