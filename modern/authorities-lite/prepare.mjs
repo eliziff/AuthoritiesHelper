@@ -9,7 +9,7 @@ async function unpack(bytes,folder,strip=false){await fs.mkdir(folder,{recursive
 const runtime=process.env.AUTHORITIES_OCR_RUNTIME
   ? new Uint8Array(await fs.readFile(process.env.AUTHORITIES_OCR_RUNTIME))
   : await get('https://github.com/eliziff/legal-browser-ocr/releases/download/v0.1.4/legal-browser-ocr-runtime.tar.gz');
-if(crypto.createHash('sha256').update(runtime).digest('hex')!=='7db31e463e4d4ce6babe377093a103d71ef3e695e09868fb44735a02d4da138d')throw new Error('OCR runtime checksum mismatch.');
+if(crypto.createHash('sha256').update(runtime).digest('hex')!=='80ab104afac99843fb9b3dbc8e1d785432c08dcbe2b9529d03ab620169c07cb3')throw new Error('OCR runtime checksum mismatch.');
 await unpack(runtime,path.join(vendor,'runtime'));
 for(const[repo,name,rev]of sources){await unpack(await get(`https://codeload.github.com/eliziff/${repo}/tar.gz/${rev}`),path.join(vendor,name),true);await fs.writeFile(path.join(vendor,`${name}-revision.txt`),rev+'\n');}
 await fs.writeFile(path.join(vendor,'beaver-revision.txt'),beaver+'\n');

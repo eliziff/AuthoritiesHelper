@@ -7,7 +7,7 @@ import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 
 export const OCR_SOURCE = 'b05952bd9b8dd47c93290899c8e3142b266d85c7';
-export const OCR_RUNTIME_SHA256 = '7db31e463e4d4ce6babe377093a103d71ef3e695e09868fb44735a02d4da138d';
+export const OCR_RUNTIME_SHA256 = '80ab104afac99843fb9b3dbc8e1d785432c08dcbe2b9529d03ab620169c07cb3';
 const vendor = path.resolve(import.meta.dirname, '../vendor'), runtime = path.join(vendor, 'runtime');
 // The release's model, codec and workers; the WebAssembly is rebuilt from source without
 // machine paths (wasm/build.mjs) and kept in this repository.
