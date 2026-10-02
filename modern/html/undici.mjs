@@ -34,12 +34,21 @@ async function publisherPdf(url, init) {
   if (kept) return new Response(kept, { headers: { "content-type": "application/pdf" } });
   const service = new URL("pdf", DEFAULT_SERVICE_URL);
   service.searchParams.set("source", url.href);
-  const response = await globalThis.fetch(service, { signal: init.signal, credentials: "omit",
-    referrerPolicy: "no-referrer" });
+  const request = { signal: init.signal, credentials: "omit", referrerPolicy: "no-referrer" };
+  let response;
+  try { response = await globalThis.fetch(service, request); }
+  catch (error) {
+    // The service answers a page whose address it does not serve without letting it read the
+    // answer, which fails as a network failure does; an opaque request resolves for any answer.
+    if (!(error instanceof TypeError) || !await globalThis.fetch(service, { ...request, method: "HEAD",
+      mode: "no-cors" }).then(() => true, () => false)) throw error;
+    throw Object.assign(new Error("The publisher PDF service does not serve this page's address."),
+      { code: "origin_denied" });
+  }
   if (!response.ok) {
     const detail = await response.json().catch(() => null);
     throw Object.assign(new Error(detail?.error ?? `The publisher PDF service could not reach ${url.hostname}.`),
-      { code: detail?.code, verificationUrl: detail?.verificationUrl ?? null });
+      { code: detail?.code, verificationUrl: detail?.verificationUrl ?? null, pdfUrl: detail?.pdfUrl });
   }
   const bytes = new Uint8Array(await response.arrayBuffer());
   if (response.headers.get("content-type")?.startsWith("application/pdf")) await keepPdf(url.href, bytes);
