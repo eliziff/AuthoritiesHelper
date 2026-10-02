@@ -30,9 +30,17 @@ export async function checkService(raw) {
 }
 // A browser fetch that never gets a CORS-readable response rejects with a bare TypeError ("Failed to fetch").
 // Name the service and step instead, so a failure says what could not be reached.
-async function reach(url, what, signal) {
-  try { return await fetch(url, { credentials:'omit',referrerPolicy:'no-referrer',signal }); }
-  catch (error) { if (signal?.aborted) throw error; throw new Error(`Could not reach ${what} (${url.host}). Check the connection and retry.`); }
+// The download service answers a page whose address it does not serve without letting it read the
+// answer; an opaque request resolves for any answer, which tells that apart from no answer.
+async function reach(url, what, signal, service=false) {
+  const request={credentials:'omit',referrerPolicy:'no-referrer',signal};
+  try { return await fetch(url, request); }
+  catch (error) {
+    if (signal?.aborted) throw error;
+    if (service&&await fetch(url,{...request,method:'HEAD',mode:'no-cors'}).then(()=>true,()=>false))
+      throw Object.assign(new Error("Automatic downloads don't work from this page's address."),{code:'origin_denied'});
+    throw new Error(`Could not reach ${what} (${url.host}). Check the connection and retry.`);
+  }
 }
 async function json(r) { return JSON.parse(new TextDecoder().decode(await readBounded(r,32*1024*1024))); }
 // A2AJ answers browsers with Access-Control-Allow-Origin: *, so a file:// page queries it directly.
@@ -64,6 +72,7 @@ export async function resolveRecord(record, engine, signal) {
   if(!source)return null;
   let url;try{url=new URL(source);}catch{throw new Error('A2AJ did not provide a valid publisher URL.');}
   if(!['https:','http:'].includes(url.protocol)||url.username||url.password)throw new Error('A2AJ returned an unsupported publisher address.');
+  record.referenceText=[found.unofficial_text_en,found.unofficial_text_fr].filter(Boolean).join("\n");
   record.aliases=[...new Set([...record.aliases,...ownCites])];
   record.name=found.name_en||found.name_fr||record.name;record.sourceUrl=url.href;
   record.sourceMetadata={dataset:found.dataset,citation:found.citation_en||found.citation_fr,upstreamLicense:found.upstream_license||null};
@@ -73,8 +82,8 @@ export async function retrievePdf(source,settings,progress,signal){
   let response;
   if(settings.url){
     const url=serviceURL(settings.url,'/pdf');url.searchParams.set('source',source);
-    response=await reach(url,'the Authorities download service',signal);
-    if(!response.ok){let detail;try{detail=await response.json();}catch{}throw Object.assign(new Error(detail?.error||`Download service returned HTTP ${response.status}.`),{code:detail?.code,verificationUrl:detail?.verificationUrl});}
+    response=await reach(url,'the Authorities download service',signal,true);
+    if(!response.ok){let detail;try{detail=await response.json();}catch{}throw Object.assign(new Error(detail?.error||`Download service returned HTTP ${response.status}.`),{code:detail?.code,pdfUrl:detail?.pdfUrl});}
   }else{
     try{const found=await acquirePdf(source,fetch,signal);response=new Response(found.body,{headers:{'Content-Type':'application/pdf',...(found.length?{'Content-Length':found.length}:{})}});}
     catch(error){if(error.code==='verification_required')throw error;throw new Error(`Direct publisher retrieval failed. Configure the PDF service to enable server-side retrieval. ${error.message}`);}

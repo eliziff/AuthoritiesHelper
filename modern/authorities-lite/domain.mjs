@@ -1,6 +1,7 @@
 // MIT. Citation recognition and structural boundaries belong to the shared Rust engine.
 import { citationCall, extractCitations } from './engine.mjs';
 import { resolvePrintedPages } from '../vendor/beaver/shared/pdf-page-binding.mjs';
+import { CANLII_PDF_NAME } from './folder.mjs';
 export const key = (text, engine) => citationCall(engine, 'keyForText', { text: String(text || '') }).key;
 /** The style of cause a decision prints before its own citation, as a CanLII PDF opens: "Citation: Pell v
  *  Marlow Holdings, 2030 ABKB 12" gives "Pell v Marlow Holdings". A caption that is not a plain "Name, citation" (a label such as "Neutral
@@ -78,31 +79,6 @@ export function initialMarks(findings) {
   return findings.filter(f => f.status === 'found').map((f, i) => ({ id: `auto-${i}-${f.target.value}`, kind: 'highlight', origin: 'automatic', label: targetLabel(f.target),
     excerpt: f.excerpt, rgb: [1, .93, .45], opacity: .3, fragments: f.fragments }));
 }
-// CanLII names its PDFs by neutral citation (2019abqb666.pdf); browsers append " (1)" to repeats.
-const CANLII_PDF_NAME = /^(\d{4})([a-z]{2,10})(\d{1,5})(?: ?\(\d+\))?\.pdf$/i;
 // The neutral citation a CanLII file name stands for; court codes key only in capitals.
 export const canliiFileCitation = name => { const match = CANLII_PDF_NAME.exec(name);
   return match ? `${match[1]} ${match[2].toUpperCase()} ${match[3]}` : null; };
-// Newest top-level CanLII-named PDF per citation, e.g. {citation:'2019 ABQB 666', file}; same rules as pickDownloads.
-export function canliiFiles(files) {
-  const best = new Map();
-  for (const file of files) {
-    const citation = canliiFileCitation(file.name);
-    if (!citation || (file.webkitRelativePath || '').split('/').length > 2) continue;
-    if (!(best.get(citation)?.lastModified >= file.lastModified)) best.set(citation, file);
-  }
-  return [...best].map(([citation, file]) => ({ citation, file }));
-}
-// Picks, per authority still missing its PDF, the newest top-level file named for one of its citations.
-export function pickDownloads(files, records, engine) {
-  const wanted = new Map();
-  for (const r of records) if (!r.document) for (const c of r.aliases) { const identity = key(c, engine); if (identity) wanted.set(identity, r); }
-  const best = new Map();
-  for (const file of files) {
-    const citation = canliiFileCitation(file.name);
-    if (!citation || (file.webkitRelativePath || '').split('/').length > 2) continue;
-    const record = wanted.get(key(citation, engine));
-    if (record && !(best.get(record)?.lastModified >= file.lastModified)) best.set(record, file);
-  }
-  return [...best].map(([record, file]) => ({ record, file }));
-}

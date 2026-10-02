@@ -22,6 +22,8 @@ export async function createEngine(bytes) {
 export function citationCall(engine, method, request) {
   return engine({ op: 'citation', method, request }).result;
 }
+/** The engine as the shared folder matcher calls it. */
+export const caller = engine => (method, request) => citationCall(engine, method, request);
 
 export function extractCitations(engine, text) {
   return citationCall(engine, 'extract', { text, offsetUnit: 'utf16', options: { resolve: false, parallel: false } }).citations;

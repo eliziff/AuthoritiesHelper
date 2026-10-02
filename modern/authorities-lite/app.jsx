@@ -1,45 +1,50 @@
 import {useRef,useState,useSyncExternalStore} from 'react';import {createRoot} from 'react-dom/client';import {flushSync} from 'react-dom';
 import {AlertTriangle,CheckCircle2,Circle,Download,ExternalLink,Eye,FilePlus2,FileText,FolderSearch,ArrowLeft,Globe,Highlighter,Loader2,Redo2,Settings,SquareDashed,TextSelect,Undo2,Search,Square,X} from 'lucide-react';
-import {createEngine} from './engine.mjs';import {bytes} from './assets.mjs';
-import {parseInstructions,key,targetLabel,pickDownloads,canliiFiles,canliiFileCitation,captionStyleOfCause} from './domain.mjs';
+import {createEngine,caller} from './engine.mjs';import {bytes} from './assets.mjs';
+import {parseInstructions,key,targetLabel,canliiFileCitation,captionStyleOfCause} from './domain.mjs';
 import {canliiPdf,resolveRecord,retrievePdf,download,makeZip,DEFAULT_SERVICE_URL} from './client.mjs';
-import {inspectPdf,verifyIdentity,headerIdentities,headerText,attachFindings,exportPdf} from './pdf.mjs';import {makeViewer} from './viewer.mjs';
+import {inspectPdf,inspectOpening,attachFindings,exportPdf} from './pdf.mjs';import {makeViewer} from './viewer.mjs';
+import {canliiFiles,headerIdentities,headerText,matchFolderPdf} from './folder.mjs';import {publisherOpenUrl} from './publisher.mjs';
 import {PdfPageNavigation} from '../vendor/beaver/frontend/src/app/components/shared/views/PdfPageNavigation.tsx';
 
 // Application state lives outside React so long-running work mutates it directly; emit() re-renders.
-const records=[],listeners=new Set();let version=0,engine,busy=false,controller,activeRecord,working=null,message='Loading the local parser…',paste='';
+const records=[],listeners=new Set();let version=0,engine,call,busy=false,controller,activeRecord,working=null,message='Loading the local parser…',paste='';
 const emit=()=>{version++;for(const l of listeners)l();};
 const notice=text=>{message=text;emit();};
 const settings=()=>({url:DEFAULT_SERVICE_URL});
 const filename=r=>r.citation.replace(/[^a-z0-9 ()[\]._-]/gi,'-')+'-highlighted.pdf';
 let viewer;
 function setStatus(record,status,failed=false){record.status=status;record.failed=failed;emit();}
-function completeStatus(record){delete record.verificationRequired;delete record.verificationUrl;const n=record.document.findings.filter(f=>f.status==='found').length,total=record.targets.length;return total?`${n} of ${total} requested passages located${n<total?' · review needed':''}`:'PDF ready · add highlights in review';}
+function completeStatus(record){delete record.blocked;const n=record.document.findings.filter(f=>f.status==='found').length,total=record.targets.length;return record.filenameMatched?'Matched by filename; check the PDF in Review':total?`${n} of ${total} requested passages located${n<total?' · review needed':''}`:'PDF ready · add highlights in review';}
 function setBusy(value){busy=value;emit();}
 let pickPdfs=()=>{},pickFolder=()=>{};
 async function parse(){
  if(!engine||busy)return;
  const next=parseInstructions(paste,engine);
- for(const r of next){const existing=records.find(a=>a.id===r.id);if(existing?.document){if(JSON.stringify(existing.targets)===JSON.stringify(r.targets))Object.assign(r,{document:existing.document,status:existing.status,aliases:existing.aliases,sourceUrl:existing.sourceUrl,sourceMetadata:existing.sourceMetadata});else{if(!confirm(`Changing pinpoints resets highlights for ${r.citation}. Continue?`))return;Object.assign(r,{document:existing.document,aliases:existing.aliases,sourceUrl:existing.sourceUrl});attachFindings(r.document,r,engine);r.status=completeStatus(r);}}}
- records.splice(0,records.length,...next);notice(next.length||!paste.trim()?'':'No complete case citations were detected.');
+ for(const r of next){const existing=records.find(a=>a.id===r.id);if(existing?.document){if(JSON.stringify(existing.targets)===JSON.stringify(r.targets))Object.assign(r,{document:existing.document,filenameMatched:existing.filenameMatched,status:existing.status,aliases:existing.aliases,sourceUrl:existing.sourceUrl,sourceMetadata:existing.sourceMetadata});else{if(!confirm(`Changing pinpoints resets highlights for ${r.citation}. Continue?`))return;Object.assign(r,{document:existing.document,filenameMatched:existing.filenameMatched,aliases:existing.aliases,sourceUrl:existing.sourceUrl});attachFindings(r.document,r,engine);r.status=completeStatus(r);}}}
+ records.splice(0,records.length,...next,...records.filter(r=>r.manualOnly&&!next.some(n=>n.id===r.id)));notice(next.length||!paste.trim()?'':'No complete case citations were detected.');
 }
-async function bind(record,data,signal){
- const doc=await inspectPdf(data,engine,s=>setStatus(record,s),signal,record);attachFindings(doc,record,engine);record.document=doc;setStatus(record,completeStatus(record));
+async function bind(record,data,signal,options={}){
+ const doc=await inspectPdf(data,engine,s=>setStatus(record,s),signal,record,options);attachFindings(doc,record,engine);record.document=doc;setStatus(record,completeStatus(record));
 }
-async function find(target=null){
- if(busy||target?.document)return;controller=new AbortController();setBusy(true);notice('');
- const blockedPublishers=new Map();
+// Why a publisher's original did not come, as the page can tell; the row then opens the publisher.
+const REASON={verification_required:'The publisher blocked the automatic download.',origin_denied:"Automatic downloads don't work from this page's address."};
+async function find(){
+ if(busy)return;controller=new AbortController();setBusy(true);notice('');
+ // A publisher that blocked the download, or a service that refused this page, is not asked again in this run.
+ const stopped=new Map();
  try{
-  for(const r of target?[target]:records.filter(r=>r.enabled&&!r.document)){
+  for(const r of records.filter(r=>r.enabled&&!r.document)){
    if(controller.signal.aborted)break;
-   working=r;try{delete r.verificationRequired;delete r.verificationUrl;
+   working=r;try{delete r.blocked;
     if(!r.sourceUrl){setStatus(r,'Looking up source');if(!await resolveRecord(r,engine,controller.signal)){setStatus(r,'No A2AJ original located · load PDF',true);continue;}}
-    const blocked=blockedPublishers.get(new URL(r.sourceUrl).origin);
-    if(blocked)throw Object.assign(new Error('Publisher verification is needed before downloading.'),{code:'verification_required',verificationUrl:blocked.verificationUrl});
+    const held=stopped.get(new URL(r.sourceUrl).origin);
+    if(held)throw Object.assign(new Error(held.message),{code:held.code});
     setStatus(r,'Connecting to publisher');const data=await retrievePdf(r.sourceUrl,settings(),s=>setStatus(r,s),controller.signal);await bind(r,data,controller.signal);
-   }catch(error){r.verificationRequired=error.code==='verification_required';r.verificationUrl=r.verificationRequired?error.verificationUrl||null:null;
-    if(r.verificationRequired&&r.sourceUrl)blockedPublishers.set(new URL(r.sourceUrl).origin,{verificationUrl:r.verificationUrl});
-    setStatus(r,controller.signal.aborted?'Cancelled':r.verificationRequired?'Automatic download blocked. Download the PDF from the publisher, then upload it here.':error.message,true);}
+   }catch(error){
+    // The PDF itself opens where its address is known, the decision's page otherwise; never a CAPTCHA page.
+    if(REASON[error.code]&&r.sourceUrl){r.blocked={reason:REASON[error.code],url:publisherOpenUrl(r.sourceUrl,error.pdfUrl)??r.sourceUrl};stopped.set(new URL(r.sourceUrl).origin,error);}
+    setStatus(r,controller.signal.aborted?'Cancelled':r.blocked?.reason||error.message,true);}
   }
  }finally{working=null;controller=null;setBusy(false);}
 }
@@ -53,12 +58,15 @@ async function upload(files,explicit){
    if(!record){const filename=canliiFileCitation(file.name),name=filename?key(filename,engine):null;const matches=name?keyedRecords.filter(r=>r.keys.has(name)).map(r=>r.record):[];if(matches.length===1)record=matches[0];}
    working=record;try{
     const data=new Uint8Array(await file.arrayBuffer());
-    if(record){if(record.document&&!confirm(`Replace the PDF and highlights for ${record.citation}?`))continue;await bind(record,data,controller.signal);}
+    // A PDF the user uploads is taken as given; one dropped on the list goes to the authority it opens with, or its own entry.
+    if(record){if(record.document&&!confirm(`Replace the PDF and highlights for ${record.citation}?`))continue;record.filenameMatched=false;await bind(record,data,controller.signal,{verify:false});}
     else{
       notice(`Identifying ${file.name}`);const doc=await inspectPdf(data,engine,s=>notice(`${file.name}: ${s}`),controller.signal);
-      const identities=new Set(headerIdentities(doc.pages,engine).map(m=>m.key).filter(Boolean));const matches=keyedRecords.filter(r=>[...r.keys].some(identity=>identities.has(identity))).map(r=>r.record);
-      if(matches.length!==1)throw new Error('No unique matching authority. Use Load PDF on its row after checking the citation.');
-      record=matches[0];verifyIdentity(doc.pages,record,engine);if(record.document&&!confirm(`Replace ${record.citation} and its highlights?`))continue;attachFindings(doc,record,engine);record.document=doc;setStatus(record,completeStatus(record));notice('');
+      const identities=new Set(headerIdentities(doc.pages,call).map(m=>m.key).filter(Boolean));const matches=keyedRecords.filter(r=>[...r.keys].some(identity=>identities.has(identity))).map(r=>r.record);
+      if(matches.length===1)record=matches[0];
+      else {const id='upload:'+doc.sourceSha256;record=records.find(r=>r.id===id);
+        if(!record){record={id,citation:file.name.replace(/\.pdf$/i,''),name:file.name.replace(/\.pdf$/i,''),aliases:[],targets:[],enabled:true,manualOnly:true};records.push(record);}}
+      if(record.document&&!confirm(`Replace ${record.citation} and its highlights?`))continue;record.filenameMatched=false;attachFindings(doc,record,engine);record.document=doc;setStatus(record,completeStatus(record));notice('');
     }
    }catch(error){notice(`${file.name}: ${error.message}`);if(record)setStatus(record,error.message,true);}
   }
@@ -68,10 +76,14 @@ async function openRecord(record,mark,page){if(!record.document)return;activeRec
 async function saveRecord(record){notice(`Preparing ${record.citation}`);const data=await exportPdf(record.document);download(data,filename(record));notice('');}
 async function downloadAll(){setBusy(true);try{const files=[];for(const r of records.filter(r=>r.enabled&&r.document)){notice(`Preparing ${r.citation}`);files.push({name:filename(r),data:await exportPdf(r.document)});}download(makeZip(files),'Highlighted-authorities.zip');notice('');}catch(error){notice(error.message);}finally{setBusy(false);}}
 
-// Auto-fetch from folder: the user picks the folder once (showDirectoryPicker in Chrome/Edge) and the app keeps watching it,
-// adding each CanLII-named PDF as it lands until the tab closes or the button is clicked again.
-// Browsers without that API get a one-time <input webkitdirectory> read.
-const WATCH_INTERVAL=2000;let watched=null,watchTimer=null,scanning=false;const seen=new Set();
+// Auto-fetch from folder: the user chooses the folder Chrome saves into once (showDirectoryPicker in Chrome/Edge). It is
+// kept for the next visit, and while the tab is open each PDF saved there is matched as it lands, without OCR, and
+// whenever the tab is come back to. Browsers without that API get a one-time <input webkitdirectory> read.
+const WATCH_INTERVAL=2000;let watched=null,watchTimer=null,scanning=false,asked=null;const seen=new Set();
+const folderStore=mode=>new Promise((resolve,reject)=>{const open=indexedDB.open('authorities-lite',1);open.onerror=()=>reject(open.error);
+ open.onupgradeneeded=()=>open.result.createObjectStore('folder');open.onsuccess=()=>resolve(open.result.transaction('folder',mode).objectStore('folder'));});
+const keepFolder=handle=>folderStore('readwrite').then(store=>handle?store.put(handle,'watched'):store.delete('watched')).catch(()=>{});
+const keptFolder=()=>folderStore('readonly').then(store=>new Promise(resolve=>{const read=store.get('watched');read.onsuccess=()=>resolve(read.result||null);read.onerror=()=>resolve(null);}),()=>null);
 // Per-viewer choice: take folder PDFs only for pasted authorities, never adding new rows.
 const ONLY_LISTED='authorities-lite.only-pasted-list';
 let onlyListed=(()=>{try{return localStorage.getItem(ONLY_LISTED)==='1';}catch{return false;}})();
@@ -80,31 +92,51 @@ function stopWatching(text){clearInterval(watchTimer);watchTimer=null;watched=nu
 async function scanWatched(first=false){
  if(!watched||scanning||busy)return;scanning=true;
  try{
-  if(await watched.queryPermission?.({mode:'read'})==='denied')return stopWatching(`Stopped watching ${watched.name}: access was withdrawn.`);
+  // Chrome's access can end with the visit; the folder is then asked for again on the next click.
+  const permission=await watched.queryPermission?.({mode:'read'});if(permission&&permission!=='granted'){asked=watched;return stopWatching();}
   const files=[];for await(const entry of watched.values())if(entry.kind==='file'&&/\.pdf$/i.test(entry.name))try{const file=await entry.getFile(),id=`${file.name}|${file.size}|${file.lastModified}`;if(!seen.has(id)){seen.add(id);files.push(file);}}catch{}
   if(files.length||first)await addFromFolder(files,!first);
  }catch(error){stopWatching(`Stopped watching the folder: ${error.message}`);}
  finally{scanning=false;}
 }
+async function watch(dir,first=true){watched=dir;asked=null;seen.clear();emit();await scanWatched(first);
+ if(watched===dir){clearInterval(watchTimer);watchTimer=setInterval(scanWatched,WATCH_INTERVAL);}}
+let askFolder=()=>{};
 async function fetchFromFolder(){if(busy)return;
- if(watched)return stopWatching('Stopped watching the folder.');
+ if(watched){keepFolder(null);return stopWatching('Stopped watching the folder.');}
+ if(asked)return askFolder();
  if(typeof window.showDirectoryPicker!=='function')return pickFolder();
  let dir;try{dir=await window.showDirectoryPicker({id:'authorities-downloads',mode:'read',startIn:'downloads'});}catch(error){if(error?.name!=='AbortError')notice(`Could not open that folder: ${error.message}`);return;}
- watched=dir;seen.clear();emit();
- await scanWatched(true);if(watched===dir){watchTimer=setInterval(scanWatched,WATCH_INTERVAL);if(!message)notice(`Watching ${dir.name}: CanLII PDFs saved there are added automatically.`);}}
-async function addFromFolder(files,quiet=false){const picks=pickDownloads(files,records,engine),picked=new Set(picks.map(p=>p.file));
- // CanLII PDFs with no listed authority to bind to become their own entries, citation taken from the filename; bind() still runs the first-page citation check.
- const known=new Set(records.flatMap(r=>r.aliases.map(c=>key(c,engine))).filter(Boolean));
- const extras=[];if(!onlyListed)for(const {citation,file} of canliiFiles(files)){const identity=key(citation,engine);if(picked.has(file)||!identity||known.has(identity))continue;
-  let r;try{r=parseInstructions(citation,engine)[0];}catch{}if(r&&!records.some(a=>a.id===r.id)){records.push(r);known.add(identity);extras.push({record:r,file});}}
- if(extras.length)emit();const all=[...picks,...extras];
- if(!all.length)return quiet?undefined:notice('No PDF in that folder is named like a CanLII citation (e.g. 2019abqb666.pdf)'+(records.some(r=>!r.document)?' for a missing authority.':'.'));
- // An authority listed by its citation alone takes the style of cause its PDF's caption prints.
- for(const {record,file} of all){await upload([file],record);
-  const name=record.document&&record.name===record.citation&&captionStyleOfCause(headerText(record.document.pages),record,engine);if(name){record.name=name;emit();}}
- for(const {record} of extras)if(!record.document)records.splice(records.indexOf(record),1);if(extras.length)emit();
- const added=all.filter(p=>p.record.document).length,missing=records.filter(r=>!r.document).length;
- if(added)notice(`Added ${added} PDF${added>1?'s':''} from the folder${missing?` · ${missing} still missing`:''}.`);}
+ keepFolder(dir);await watch(dir);if(watched===dir&&!message)notice(`Watching ${dir.name}: PDFs saved there are added to their authorities.`);}
+// Lite also adds a CanLII-named PDF for a case the list does not name, unless only the pasted list is wanted.
+// Every other PDF goes to the authority still without one that the shared matcher finds it is; it never replaces a PDF.
+async function addFromFolder(files,quiet=false){
+ if(busy)return;controller=new AbortController();setBusy(true);let added=0;
+ try{
+  const extras=[];
+  const known=new Set(records.flatMap(r=>r.aliases.map(c=>key(c,engine))).filter(Boolean));
+  if(!onlyListed)for(const {citation} of canliiFiles(files)){const identity=key(citation,engine);if(!identity||known.has(identity))continue;
+   let r;try{r=parseInstructions(citation,engine)[0];}catch{}if(r&&!records.some(a=>a.id===r.id)){extras.push(r);records.push(r);known.add(identity);}}
+  for(const file of [...files].sort((a,b)=>b.lastModified-a.lastModified)){
+   if(controller.signal.aborted)break;
+   if(!/\.pdf$/i.test(file.name)||(file.webkitRelativePath||'').split('/').length>2||file.size>100*1024*1024)continue;
+   const pending=records.filter(r=>r.enabled&&!r.document);if(!pending.length)break;
+   let prepared;
+   try{
+    const data=new Uint8Array(await file.arrayBuffer());prepared=await inspectOpening(data);
+    const match=await matchFolderPdf(file.name,prepared.pages,pending,call);if(!match)continue;
+    const record=match.record;working=record;record.filenameMatched=match.method==='filename';
+    const retained=prepared;prepared=null;
+    await bind(record,data,controller.signal,{prepared:retained,recognize:false,verify:false});added++;
+    // An authority listed by its citation alone takes the style of cause its PDF's caption prints.
+    const name=record.name===record.citation&&captionStyleOfCause(headerText(record.document.pages),record,engine);if(name)record.name=name;
+   }catch(error){if(!quiet)notice(`${file.name}: ${error.message}`);}
+   finally{await prepared?.pdf.destroy();working=null;}
+  }
+  for(const r of extras)if(!r.document)records.splice(records.indexOf(r),1);
+  if(added||!quiet)notice(added?`${added} PDF${added===1?'':'s'} added from the folder.`:'No unambiguous matches. You can upload any PDF manually.');
+ }finally{controller=null;setBusy(false);}
+}
 
 const cx=(...c)=>c.filter(Boolean).join(' ');
 const BUTTON='inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md border font-medium outline-none focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0';
@@ -119,9 +151,6 @@ const Card=({title,subtitle,actions,children,className})=><section aria-label={t
 const dropProps=(onFiles,setOver)=>({onDragOver:e=>{e.preventDefault();setOver(true);},onDragLeave:()=>setOver(false),onDrop:e=>{e.preventDefault();e.stopPropagation();setOver(false);if(!busy)onFiles(e.dataTransfer.files);}});
 
 const LINK='inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-gray-300 bg-white px-2.5 text-xs font-medium text-gray-800 outline-none hover:bg-gray-50 focus-visible:ring-3 focus-visible:ring-ring/50 [&_svg]:size-3.5';
-function challengeLink(record){
- try {const url=new URL(record.verificationUrl);return url.protocol==='https:'&&url.origin===new URL(record.sourceUrl).origin&&/^\/robocop\/captcha\/(?:en|fr)\/query\.do$/i.test(url.pathname)?url.href:null;}catch{return null;}
-}
 function state(record){
  if(working===record)return {tone:'busy',label:'Fetching',Icon:Loader2};
  if(record.document)return record.document.findings.some(f=>f.status!=='found')&&record.targets.length?{tone:'ok',label:'PDF ready',Icon:CheckCircle2}:{tone:'ok',label:'PDF ready',Icon:CheckCircle2};
@@ -132,7 +161,6 @@ const TONE={ok:'border-emerald-200 bg-emerald-50 text-emerald-800',warn:'border-
 function Record({record}){
  const [over,setOver]=useState(false);
  const same=record.name===record.citation,st=state(record),ready=!!record.document;
- const verificationUrl=record.verificationRequired?challengeLink(record):null;
  let pdfLink=canliiPdf(record.citation,engine);if(!pdfLink)for(const c of record.aliases){pdfLink=canliiPdf(c,engine);if(pdfLink)break;}
  return <article className={cx('grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 border-l-4 px-4 py-4',ready?'border-l-emerald-500':'border-l-transparent',over&&'bg-red-50')} {...dropProps(files=>upload(files,record),setOver)}>
   <label className="inline-flex min-h-6 items-start pt-0.5"><input type="checkbox" className="size-[18px] cursor-pointer accent-gray-950 disabled:opacity-50" checked={record.enabled} disabled={busy} aria-label={`Include ${record.citation}`} onChange={e=>{record.enabled=e.target.checked;emit();}}/></label>
@@ -153,8 +181,7 @@ function Record({record}){
       <Button size="compact" variant="outline" disabled={busy} onClick={()=>saveRecord(record).catch(e=>notice(e.message))}><Download/>Download</Button></>
      :<Button size="compact" variant="outline" disabled={busy} onClick={()=>{activeRecord=record;pickPdfs();}}><FilePlus2/>Upload</Button>}
     {pdfLink&&<a href={pdfLink} target="_blank" rel="noopener noreferrer" title="Open this decision's PDF on CanLII in a new tab" className={LINK}><FileText aria-hidden="true"/>CanLII PDF<ExternalLink aria-hidden="true" className="text-gray-500"/></a>}
-    {(!pdfLink||record.verificationRequired)&&record.sourceUrl&&<a href={verificationUrl||record.sourceUrl} target="_blank" rel="noopener noreferrer" title={verificationUrl?'Open the publisher verification page in a new tab':"Open this decision on the publisher's site in a new tab"} className={LINK}><Globe aria-hidden="true"/>{verificationUrl?'Solve CAPTCHA':record.verificationRequired?'Open publisher':'Source'}<ExternalLink aria-hidden="true" className="text-gray-500"/></a>}
-    {record.verificationRequired&&<Button size="compact" variant="outline" disabled={busy} onClick={()=>find(record)}><Redo2/>Retry download</Button>}
+    {(!pdfLink||record.blocked)&&record.sourceUrl&&<a href={record.blocked?.url||record.sourceUrl} target="_blank" rel="noopener noreferrer" title={record.blocked?'Download the PDF from the publisher, then upload it here.':"Open this decision on the publisher's site in a new tab"} className={LINK}><Globe aria-hidden="true"/>{record.blocked?'Open publisher':'Source'}<ExternalLink aria-hidden="true" className="text-gray-500"/></a>}
    </div>
   </div>
  </article>;
@@ -193,8 +220,8 @@ function ViewerShell(){
 
 function App(){
  useSyncExternalStore(l=>{listeners.add(l);return()=>listeners.delete(l);},()=>version);
- const pdfInput=useRef(null),folderInput=useRef(null),fetchSettings=useRef(null),timer=useRef(0),[over,setOver]=useState(false),[text,setText]=useState(paste);
- pickPdfs=()=>pdfInput.current?.click();pickFolder=()=>folderInput.current?.click();
+ const pdfInput=useRef(null),folderInput=useRef(null),fetchSettings=useRef(null),folderAccess=useRef(null),timer=useRef(0),[over,setOver]=useState(false),[text,setText]=useState(paste);
+ pickPdfs=()=>pdfInput.current?.click();pickFolder=()=>folderInput.current?.click();askFolder=()=>folderAccess.current?.showModal();
  const onPaste=value=>{setText(value);paste=value;clearTimeout(timer.current);timer.current=setTimeout(()=>parse().catch(e=>notice(e.message)),300);};
  const ready=records.filter(r=>r.enabled&&r.document).length;
  return <div className="min-h-dvh bg-app-background">
@@ -202,7 +229,7 @@ function App(){
    <h1 className="truncate text-2xl font-medium leading-tight text-gray-900">Authorities-lite</h1>
    <div className="flex flex-wrap items-center gap-2">
     <Button variant="outline" disabled={busy} onClick={fetchFromFolder} aria-pressed={!!watched}
-     title={watched?'Stop watching this folder':'Choose a folder once; PDFs named like 2019abqb666.pdf that are saved there are added to their authorities as they arrive.'}
+     title={watched?'Stop watching this folder':"Choose the folder Chrome saves into, such as Downloads\\Authorities; Chrome won't share Downloads itself. PDFs saved there are added to their authorities."}
      className={cx('border-gray-400',watched&&'border-brand bg-brand-soft text-brand-dark hover:bg-red-100')}>
      {watched?<><Loader2 className="motion-safe:animate-spin"/>Watching {watched.name}<Square className="fill-current"/></>:<><FolderSearch/>Auto-fetch from folder</>}</Button>
     <Button variant="outline" aria-label="Auto-fetch settings" title="Auto-fetch settings" className="w-9 border-gray-400 px-0"
@@ -220,7 +247,7 @@ function App(){
       <button type="button" disabled={busy} onClick={()=>{activeRecord=null;pickPdfs();}} {...dropProps(files=>upload(files),setOver)}
        className={cx('flex w-full flex-col items-center gap-1 rounded-lg border border-dashed px-4 py-6 text-center outline-none focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50',over?'border-brand bg-brand-soft':'border-gray-300 bg-gray-50 hover:bg-gray-100')}>
        <FilePlus2 className="size-5 text-gray-500"/><span className="text-sm font-medium text-gray-900">Click or drag to add PDFs</span>
-       <span className="text-xs text-gray-600">Each PDF is matched to its citation.</span></button>
+       <span className="text-xs text-gray-600">PDFs without a matching citation are added separately.</span></button>
      </div>
     </Card>
     <p role="status" aria-live="polite" className={cx('flex min-h-6 items-center gap-2 px-1 text-sm [overflow-wrap:anywhere]',busy?'font-medium text-gray-700':'text-gray-700')}>
@@ -239,6 +266,17 @@ function App(){
     <div className="flex justify-end"><Button type="submit">Done</Button></div>
    </form>
   </dialog>
+  {/* Chrome asks again before a folder kept from an earlier visit is read: once, on the next click. */}
+  <dialog ref={folderAccess} aria-label="Folder access" className="m-auto w-[min(26rem,calc(100vw-2rem))] rounded-xl border border-gray-300 bg-white p-0 text-gray-950 shadow-lg backdrop:bg-gray-950/30">
+   <form method="dialog" className="grid gap-4 p-4">
+    <h2 className="font-semibold">Folder access</h2>
+    <p className="text-sm leading-6 text-gray-700">Chrome asks again before Authorities-lite can watch <strong>{asked?.name}</strong>. Choose <strong>Allow on every visit</strong> so it won’t ask next time.</p>
+    <div className="flex justify-end gap-2">
+     <Button type="submit" variant="outline" onClick={()=>{asked=null;keepFolder(null);emit();}}>Not now</Button>
+     <Button type="submit" onClick={async()=>{const dir=asked;if(dir&&await dir.requestPermission?.({mode:'read'})==='granted')watch(dir);}}>Allow access</Button>
+    </div>
+   </form>
+  </dialog>
   <input ref={folderInput} type="file" webkitdirectory="" hidden onChange={e=>{const files=Array.from(e.target.files);e.target.value='';addFromFolder(files);}}/>
  </div>;
 }
@@ -250,6 +288,9 @@ viewer=makeViewer(document.getElementById('viewer'),emit,({page,count,labels})=>
 window.addEventListener('dragover',e=>e.preventDefault());window.addEventListener('drop',e=>e.preventDefault());
 document.getElementById('viewer-download').onclick=()=>activeRecord&&saveRecord(activeRecord).catch(e=>notice(e.message));
 createRoot(document.getElementById('root')).render(<App/>);
-try{engine=await createEngine(bytes('structure'));notice('');if(paste.trim())parse().catch(e=>notice(e.message));}catch(error){notice(`Runtime failed: ${error.message}`);}
+try{engine=await createEngine(bytes('structure'));call=caller(engine);notice('');if(paste.trim())parse().catch(e=>notice(e.message));}catch(error){notice(`Runtime failed: ${error.message}`);}
+// A folder kept from an earlier visit is watched again, or asked for on the next click.
+keptFolder().then(async dir=>{if(!dir||watched)return;if(await dir.queryPermission?.({mode:'read'})==='granted')watch(dir,false);else{asked=dir;emit();}}).catch(()=>{});
+window.addEventListener('focus',()=>scanWatched());
 // A documented inspection surface for reproducible browser tests; no privileged or remote operations.
 globalThis.AuthoritiesApp={get records(){return records;},get engine(){return engine;},parse,exportPdf,inspectPdf};

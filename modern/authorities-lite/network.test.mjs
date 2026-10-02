@@ -44,7 +44,7 @@ test('a confirmed PDF control exposes the exact challenge URL', async () => {
   await assert.rejects(acquirePdf(source,async url=>url.endsWith('/1204/1/document.do')
     ? new Response('<iframe src="/robocop/captcha/en/query.do"></iframe>',{status:403,headers:{'Content-Type':'text/html'}})
     : new Response('<li class="documents"><a href="/scc-csc/scc-csc/en/1204/1/document.do">PDF</a></li>',{headers:{'Content-Type':'text/html'}})),
-  {code:'verification_required',verificationUrl:'https://decisions.scc-csc.ca/robocop/captcha/en/query.do'});
+  {code:'verification_required',verificationUrl:'https://decisions.scc-csc.ca/robocop/captcha/en/query.do',pdfUrl:source.replace('/item/1204/index.do','/1204/1/document.do')});
 });
 test('an incidental CAPTCHA script on a readable case preserves the guessed PDF challenge URL', async () => {
   const exact='https://decisions.scc-csc.ca/robocop/captcha/fr/query.do?token=pdf';

@@ -17,10 +17,11 @@ This Authorities integration is MIT-licensed, Copyright (c) 2026 Elias Ziff; the
 
 The archive includes `SOURCES.json` with exact source revisions and SHA-256 hashes of embedded inputs. Source judgments retain their publisher terms; A2AJ's `upstream_license` is retained where supplied. No legal text or source PDFs are relicensed here.
 
-The publisher helper is generated separately from Beaver's
-`backend/src/lib/legalSourcePresentation.ts` and its imports by
-`sync-publisher.mjs`, under the same MIT permission. Its generated header records
-the combined source SHA-256; it is not an adaptation of the older pinned snapshot.
+The publisher helper (`publisher.mjs`) and the folder matcher (`folder.mjs`) are
+generated separately from Beaver's `backend/src/lib/legalSourcePresentation.ts` and
+`shared/folder-pdf-match.mjs` and their imports by `sync-publisher.mjs`, under the
+same MIT permission. Each generated header records the combined source SHA-256; they
+are not adaptations of the older pinned snapshot.
 
 ## MIT permission notice
 

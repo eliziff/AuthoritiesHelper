@@ -141,14 +141,18 @@ export async function acquirePdf(raw, fetcher = fetch, signal, finish = () => {}
   let lastError;
   for (const discovered of [...new Set(candidates)].slice(0, 4)) {
     if (discovered === candidate) {
-      if (candidateError?.code === 'verification_required') throw candidateError;
+      if (candidateError?.code === 'verification_required') throw Object.assign(candidateError, { pdfUrl: discovered });
       if (candidateError) { lastError = candidateError; continue; }
     }
     try {
       const found = await publisherFetch(new URL(discovered), source, fetcher, signal);
       return { body: await validatedPdfStream(found.response, finish), url: found.url.href,
         length: found.response.headers.has('content-encoding') ? null : found.response.headers.get('content-length') };
-    } catch (error) { if (signal?.aborted || error.code === 'verification_required') throw error; lastError = error; }
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      if (error.code === 'verification_required') throw Object.assign(error, { pdfUrl: discovered });
+      lastError = error;
+    }
   }
   throw lastError || new SourceError('No original PDF download control was found at the publisher.', 404, 'pdf_not_found');
 }

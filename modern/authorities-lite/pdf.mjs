@@ -6,7 +6,8 @@ import { cropToPdfTransform } from '../vendor/ocr-source/text-layer.js';
 import { recognizePage } from './ocr.mjs';
 import { assetURL } from './assets.mjs';
 import { findTargets, initialMarks } from './domain.mjs';
-import { citationCall, extractCitations } from './engine.mjs';
+import { caller, extractCitations } from './engine.mjs';
+import { verifyIdentity } from './folder.mjs';
 import { ANNOTATION_SCHEMA, decodeAnnotationSet } from './vendor/pdf-annotations.mjs';
 import { writeAuthorityAnnotations } from './vendor/annotation-writer.mjs';
 import { reporterMarginLabels, resolvePdfPagination } from '../vendor/beaver/shared/pdf-page-binding.mjs';
@@ -92,20 +93,29 @@ export function assembleText(pages) {
   }
   return {text,lines};
 }
-export async function inspectPdf(data, engine, progress=()=>{}, signal, expectedRecord) {
+// Folder discovery reads at most two native-text pages and never renders or recognizes.
+export async function inspectOpening(data) {
+  const pdf=await openPdf(data),pages=[];
+  try {if(pdf.numPages>2000)throw new Error('PDF exceeds the 2,000-page limit.');for(let n=1;n<=Math.min(2,pdf.numPages);n++){
+    const page=await pdf.getPage(n),viewport=page.getViewport({scale:1});
+    pages.push({number:n,width:viewport.width,height:viewport.height,lines:nativeLines(await page.getTextContent(),viewport,n),ocr:false});
+    page.cleanup();
+  }return {pdf,pages};}catch(error){await pdf.destroy();throw error;}
+}
+export async function inspectPdf(data, engine, progress=()=>{}, signal, expectedRecord, options={}) {
   if(data.byteLength>100*1024*1024)throw new Error('PDF exceeds the 100 MiB limit.');
-  const pdf=await openPdf(data), pages=[], ocrPages=[];
+  const pdf=options.prepared?.pdf||await openPdf(data), pages=[], ocrPages=[];
   if(pdf.numPages>2000){await pdf.destroy();throw new Error('PDF exceeds the 2,000-page limit.');}
   try {
     for(let n=1;n<=pdf.numPages;n++){
       signal?.throwIfAborted();progress(`Reading page ${n} of ${pdf.numPages}`);
       const page=await pdf.getPage(n),viewport=page.getViewport({scale:1});
-      const native=nativeLines(await page.getTextContent(),viewport,n);let lines=native,ocr=null;
+      const native=options.prepared?.pages[n-1]?.lines||nativeLines(await page.getTextContent(),viewport,n);let lines=native,ocr=null;
       const useful=native.reduce((sum,l)=>sum+(l.text.match(/[\p{L}\p{N}]/gu)?.length||0),0);
       const body=native.filter(l=>l.rect[1]>.1&&l.rect[3]<.9).reduce((sum,l)=>sum+l.text.length,0);
       let hasImage=false;
-      if(body<40&&useful>=60){const ops=await page.getOperatorList();hasImage=ops.fnArray.some(fn=>[OPS.paintImageXObject,OPS.paintInlineImageXObject,OPS.paintImageMaskXObject,OPS.paintImageXObjectRepeat].includes(fn));}
-      if(useful<60||(body<40&&hasImage)){
+      if(options.recognize!==false&&body<40&&useful>=60){const ops=await page.getOperatorList();hasImage=ops.fnArray.some(fn=>[OPS.paintImageXObject,OPS.paintInlineImageXObject,OPS.paintImageMaskXObject,OPS.paintImageXObjectRepeat].includes(fn));}
+      if(options.recognize!==false&&(useful<60||(body<40&&hasImage))){
         const view=await rendered(page);
         try {
           if(hasInk(view.canvas)){
@@ -120,7 +130,7 @@ export async function inspectPdf(data, engine, progress=()=>{}, signal, expected
       }
       pages.push({number:n,width:viewport.width,height:viewport.height,lines,ocr:!!ocr});
       ocrPages.push(ocr||{lines:[],transform:[1,0,0,1,0,0]});page.cleanup();
-      if(n===1&&expectedRecord)verifyIdentity(pages,expectedRecord,engine);
+      if(n===1&&expectedRecord&&options.verify!==false)verifyIdentity(pages,expectedRecord,caller(engine));
       await new Promise(resolve=>setTimeout(resolve,0));
     }
     const starts=expectedRecord?[...new Set(expectedRecord.aliases.flatMap(alias=>extractCitations(engine,alias))
@@ -137,32 +147,6 @@ export async function inspectPdf(data, engine, progress=()=>{}, signal, expected
     const structure=engine({op:'structure',input:{provider:'pdf',citation:expectedRecord?.citation||'Uploaded PDF',source_kind:'cases',text:assembled.text}});
     return {data:new Uint8Array(data),pages,ocrPages,pageLabels,pageBindings,sourceSha256,...assembled,nodes:structure.nodes};
   }finally{await pdf.destroy();}
-}
-/** The first page's lines before the reasons begin: the caption and its citations. */
-export function headerText(pages){
-  let text='';for(const l of pages[0]?.lines||[]){if(/^\s*(?:\[1\]|1[.)])\s/.test(l.text))break;text+=l.text+'\n';if(text.length>5000)break;}
-  return text;
-}
-export function headerIdentities(pages,engine){
-  const text=headerText(pages);if(!text)return[];
-  return extractCitations(engine, text)
-    .filter(c => c.form === 'full' && ['neutral', 'can_lii', 'reporter'].includes(c.format))
-    .map(c => ({ ...c.span, key: c.key, family: c.format }));
-}
-// Supreme Court publisher PDFs are the bilingual S.C.R./R.C.S. print: page one opens with a running head such as
-// "[2019] 4 R.C.S. / CANADA c. VAVILOV / 653", which carries no neutral citation. Accept it only when the volume
-// and first page (and the year, when the citation keeps it) equal one of the record's own S.C.R. citations.
-export function scrRunningHead(pages,citations,engine){
-  const head=(pages[0]?.lines||[]).slice(0,6).map(l=>l.text).join(' ');
-  return citationCall(engine, 'matchesReporterHeader', { text: head, citations });
-}
-export function verifyIdentity(pages,record,engine){
-  const aliases=record.aliases.flatMap(alias=>extractCitations(engine,alias));
-  const identities=headerIdentities(pages,engine), accepted=new Set(aliases.map(c=>c.key).filter(Boolean));
-  const own=identities.filter(i=>i.family==='neutral');
-  const candidates = own.length ? own.slice(0,1) : identities;
-  if((!own.length||!aliases.some(c=>c.format==='neutral'))&&scrRunningHead(pages,aliases,engine))return;
-  if(!candidates.some(i=>i.key && accepted.has(i.key)))throw new Error(own.length?`Wrong PDF: its opening citation is ${own[0].text}, not ${record.citation}.`:'The opening citation could not be verified. Keep this file unbound and check its first page.');
 }
 export function attachFindings(document,record,engine){
   document.findings=findTargets(document,record.targets,engine);document.marks=initialMarks(document.findings);document.undo=[];document.redo=[];
