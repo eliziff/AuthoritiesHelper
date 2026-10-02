@@ -89,13 +89,19 @@ export async function buildAuthoritiesHtml(output) {
   const { html, script, css } = await buildFrontend();
   const ocr = { ...await browserOcrAssets(),
     pdfWorker: readFileSync(path.join(here, "../vendor/runtime/dist/pdf.worker.min.mjs")).toString("base64") };
+  // Named for what is recognized (recognized text is kept by it), before the assets are packed.
+  const ocrKey = browserOcrKey(ocr);
+  // Gzip keeps the page small (these assets, the runtime and the fonts go in at a third of their
+  // size): the page inflates the runtime as it starts and the recognizer's assets before the first
+  // page is read, and the runtime Worker its engine, all off the main thread.
+  const gzip = (bytes) => gzipSync(bytes, { level: 9 }).toString("base64");
+  const packed = ["model", "ortMjs", "ortWasm", "recognitionWorker", "layoutCore", "layoutWasm", "pdfWorker"];
+  for (const name of packed) ocr[name] = gzip(Buffer.from(ocr[name], "base64"));
   const bridge = await bundleBridge({
-    runtime: runtime.code, relayUrl, ocr,
-    // Gzip keeps the page small; the runtime Worker inflates and compiles it off the main thread.
-    engine: gzipSync(engine, { level: 9 }).toString("base64"),
+    runtime: gzip(Buffer.from(runtime.code)), relayUrl, ocr: { ...ocr, gzip: packed }, engine: gzip(engine),
     fonts: Object.fromEntries(readdirSync(fonts).filter((name) => !name.startsWith("LICENSE"))
-      .map((name) => [name, readFileSync(path.join(fonts, name)).toString("base64")])),
-  }, browserOcrKey(ocr));
+      .map((name) => [name, gzip(readFileSync(path.join(fonts, name)))])),
+  }, ocrKey);
   // Drop the build's external tags; the page carries everything inline.
   const page = html
     .replace(/<script\b[^>]*\bsrc=[^>]*><\/script>\s*/gu, "")

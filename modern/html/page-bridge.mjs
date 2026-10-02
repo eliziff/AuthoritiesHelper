@@ -20,14 +20,19 @@ globalThis.AUTHORITIES_PDF_TEXT = {
       product.state.authorityOrder.findIndex(id=>product.state.authorities[id].source.sources?.some(source=>source.bindingRole===role)));
   },
 };
-const decode = (base64) => Uint8Array.from(atob(base64), (character) => character.charCodeAt(0));
+const decode = (base64) => {
+  const text = atob(base64), bytes = new Uint8Array(text.length);
+  for (let index = 0; index < text.length; index += 1) bytes[index] = text.charCodeAt(index);
+  return bytes;
+};
+const inflate = (base64) => new Response(new Blob([decode(base64)]).stream().pipeThrough(new DecompressionStream("gzip")));
 
-const worker = new Worker(URL.createObjectURL(new Blob([payload.runtime], { type: "text/javascript" })),
-  { name: "authorities-runtime" });
 const pending = new Map();
 const recognition = new Map();
-let nextId = 0, failure = null;
-const ready = new Promise((resolve, reject) => {
+let nextId = 0, failure = null, worker;
+// The runtime is carried gzipped: it is inflated off the main thread, then started as its Worker.
+const ready = inflate(payload.runtime).blob().then((code) => new Promise((resolve, reject) => {
+  worker = new Worker(URL.createObjectURL(new Blob([code], { type: "text/javascript" })), { name: "authorities-runtime" });
   const stop = (message) => {
     // Before start-up this rejects `ready`; afterwards it ends every open request.
     failure = new Error(`Authorities stopped working: ${message}. Reload the page to continue.`);
@@ -82,7 +87,7 @@ const ready = new Promise((resolve, reject) => {
     else if (data.type === "error") request.fail(new Error(data.message));
   };
   worker.postMessage({ type: "init", engine: payload.engine, relayUrl: payload.relayUrl });
-});
+}));
 ready.catch(() => { /* each request reports it */ });
 
 /** The body as the Worker takes it. A FormData or string the caller built is passed as is,
@@ -149,7 +154,8 @@ globalThis.fetch = async (input, init) => {
   if (route?.startsWith(API)) return runtimeFetch(new Request(input, init), route, init);
   if (route?.startsWith(FONTS)) {
     const font = fonts.get(route.slice(FONTS.length));
-    return font ? new Response(decode(font)) : new Response(null, { status: 404 });
+    // The fonts are carried gzipped and inflated as PDF.js asks for each.
+    return font ? inflate(font) : new Response(null, { status: 404 });
   }
   // A browser cannot read other local files; say which one instead of "Failed to fetch".
   if (url.protocol === "file:") return new Response(JSON.stringify({ detail: `Authorities has no file at ${route}` }),

@@ -2,7 +2,7 @@
 import { TesseractLayout } from '../vendor/ocr-source/tesseract-layout.js';
 import { orderLayoutLines } from '../vendor/ocr-source/layout-order.js';
 import { positionedLines } from '../vendor/ocr-source/text-layer.js';
-import { bytes, assetURL, textAsset } from './assets.mjs';
+import { assetsReady, bytes, assetURL, textAsset } from './assets.mjs';
 
 // Each recognizer reads one page at a time on its own workers, so pages are read side by side by
 // as many recognizers as the machine has cores to spare; each is small (a 0.7 MB model).
@@ -59,6 +59,7 @@ class QualityOCR {
 }
 export async function recognizePage(canvas, signal) {
   signal?.throwIfAborted();
+  await assetsReady(); signal?.throwIfAborted();
   const ocr = idle.pop() ?? (created++, new QualityOCR());
   let abort;
   const cancelled = new Promise((_, reject) => {

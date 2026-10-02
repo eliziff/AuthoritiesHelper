@@ -1,6 +1,6 @@
 // Rendering/recognition adapter; the Rust parser still owns page selection and structure.
 import { getDocument, PDFWorker } from 'pdfjs-dist/build/pdf.mjs';
-import { assetURL } from '../browser-ocr/assets.mjs';
+import { assetsReady, assetURL } from '../browser-ocr/assets.mjs';
 import { OCR_PARALLEL, recognizePage } from '../browser-ocr/ocr.mjs';
 
 // PDF.js decodes pages in its own worker. Started from a file:// page, PDF.js cannot load the worker
@@ -16,7 +16,7 @@ function useDocument(source, bytes) {
   let entry = documents.get(source);
   if (!entry) documents.set(source, entry = { users: 0, task: null,
     // A copy: PDF.js takes the bytes it is given to its worker.
-    open: () => (entry.task ??= getDocument({ data: bytes.slice(), isEvalSupported: false,
+    open: async () => (await assetsReady(), entry.task ??= getDocument({ data: bytes.slice(), isEvalSupported: false,
       useSystemFonts: true, worker: worker() })).promise });
   entry.users += 1;
   return { open: entry.open, close() {
