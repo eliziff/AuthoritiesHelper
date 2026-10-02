@@ -138,9 +138,13 @@ export async function inspectPdf(data, engine, progress=()=>{}, signal, expected
     return {data:new Uint8Array(data),pages,ocrPages,pageLabels,pageBindings,sourceSha256,...assembled,nodes:structure.nodes};
   }finally{await pdf.destroy();}
 }
+/** The first page's lines before the reasons begin: the caption and its citations. */
+export function headerText(pages){
+  let text='';for(const l of pages[0]?.lines||[]){if(/^\s*(?:\[1\]|1[.)])\s/.test(l.text))break;text+=l.text+'\n';if(text.length>5000)break;}
+  return text;
+}
 export function headerIdentities(pages,engine){
-  const page=pages[0];if(!page)return[];
-  let text='';for(const l of page.lines){if(/^\s*(?:\[1\]|1[.)])\s/.test(l.text))break;text+=l.text+'\n';if(text.length>5000)break;}
+  const text=headerText(pages);if(!text)return[];
   return extractCitations(engine, text)
     .filter(c => c.form === 'full' && ['neutral', 'can_lii', 'reporter'].includes(c.format))
     .map(c => ({ ...c.span, key: c.key, family: c.format }));

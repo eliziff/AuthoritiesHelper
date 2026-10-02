@@ -1,9 +1,9 @@
 import {useRef,useState,useSyncExternalStore} from 'react';import {createRoot} from 'react-dom/client';import {flushSync} from 'react-dom';
 import {AlertTriangle,CheckCircle2,Circle,Download,ExternalLink,Eye,FilePlus2,FileText,FolderSearch,ArrowLeft,Globe,Highlighter,Loader2,Redo2,Settings,SquareDashed,TextSelect,Undo2,Search,Square,X} from 'lucide-react';
 import {createEngine} from './engine.mjs';import {bytes} from './assets.mjs';
-import {parseInstructions,key,targetLabel,pickDownloads,canliiFiles,canliiFileCitation} from './domain.mjs';
+import {parseInstructions,key,targetLabel,pickDownloads,canliiFiles,canliiFileCitation,captionStyleOfCause} from './domain.mjs';
 import {canliiPdf,resolveRecord,retrievePdf,download,makeZip,DEFAULT_SERVICE_URL} from './client.mjs';
-import {inspectPdf,verifyIdentity,headerIdentities,attachFindings,exportPdf} from './pdf.mjs';import {makeViewer} from './viewer.mjs';
+import {inspectPdf,verifyIdentity,headerIdentities,headerText,attachFindings,exportPdf} from './pdf.mjs';import {makeViewer} from './viewer.mjs';
 import {PdfPageNavigation} from '../vendor/beaver/frontend/src/app/components/shared/views/PdfPageNavigation.tsx';
 
 // Application state lives outside React so long-running work mutates it directly; emit() re-renders.
@@ -99,7 +99,9 @@ async function addFromFolder(files,quiet=false){const picks=pickDownloads(files,
   let r;try{r=parseInstructions(citation,engine)[0];}catch{}if(r&&!records.some(a=>a.id===r.id)){records.push(r);known.add(identity);extras.push({record:r,file});}}
  if(extras.length)emit();const all=[...picks,...extras];
  if(!all.length)return quiet?undefined:notice('No PDF in that folder is named like a CanLII citation (e.g. 2019abqb666.pdf)'+(records.some(r=>!r.document)?' for a missing authority.':'.'));
- for(const {record,file} of all)await upload([file],record);
+ // An authority listed by its citation alone takes the style of cause its PDF's caption prints.
+ for(const {record,file} of all){await upload([file],record);
+  const name=record.document&&record.name===record.citation&&captionStyleOfCause(headerText(record.document.pages),record,engine);if(name){record.name=name;emit();}}
  for(const {record} of extras)if(!record.document)records.splice(records.indexOf(record),1);if(extras.length)emit();
  const added=all.filter(p=>p.record.document).length,missing=records.filter(r=>!r.document).length;
  if(added)notice(`Added ${added} PDF${added>1?'s':''} from the folder${missing?` · ${missing} still missing`:''}.`);}
