@@ -8,7 +8,7 @@ import { bytes, assetURL, textAsset } from './assets.mjs';
 // as many recognizers as the machine has cores to spare; each is small (a 0.7 MB model).
 export const OCR_PARALLEL = Math.max(1, Math.min(4, Math.floor((globalThis.navigator?.hardwareConcurrency ?? 2) / 2)));
 const idle = [];
-let created = 0;
+let created = 0, codec;
 class QualityOCR {
   constructor() {
     this.layout = new TesseractLayout({ workerPath: assetURL('layoutWorker'), corePath: assetURL('layoutCore'),
@@ -28,9 +28,9 @@ class QualityOCR {
         clearTimeout(timer); const error = new Error(event.message || 'The local OCR worker failed.'); reject(error);
         for (const pending of this.pending.values()) pending.reject(error); this.pending.clear();
       };
-      const model = bytes('model');
+      const model = bytes('model').slice();
       this.worker.postMessage({ type: 'init', runtimeMjs: assetURL('ortMjs'), runtimeWasm: assetURL('ortWasm', 'application/wasm'),
-        model, codec: JSON.parse(textAsset('codec')), batchSize: 32, bucketSize: 24, padding: 16 }, [model.buffer]);
+        model, codec: codec ??= JSON.parse(textAsset('codec')), batchSize: 32, bucketSize: 24, padding: 16 }, [model.buffer]);
     });
   }
   async recognize(canvas, signal) {
@@ -60,15 +60,18 @@ class QualityOCR {
 export async function recognizePage(canvas, signal) {
   signal?.throwIfAborted();
   const ocr = idle.pop() ?? (created++, new QualityOCR());
-  let abort, healthy = false;
+  let abort;
   const cancelled = new Promise((_, reject) => {
     abort = () => reject(signal.reason);
     signal?.addEventListener('abort', abort, { once: true });
   });
-  try { const lines = await Promise.race([ocr.recognize(canvas, signal), cancelled]); healthy = true; return lines; }
-  finally {
-    signal?.removeEventListener('abort', abort);
-    // A recognizer stopped mid-page is discarded with its workers; a finished one waits for the next page.
-    if (healthy && created <= OCR_PARALLEL) idle.push(ocr); else { ocr.dispose(); created -= 1; }
-  }
+  const reading = ocr.recognize(canvas, signal);
+  // A recognizer waits for the next page once its own is done or given up (it stops at the next
+  // step), never while it is still busy: making another costs its model and workers again. One that
+  // failed is discarded with its workers.
+  reading.then(() => true, (error) => error?.name === 'AbortError').then((reusable) => {
+    if (reusable && created <= OCR_PARALLEL) idle.push(ocr); else { ocr.dispose(); created -= 1; }
+  });
+  try { return await Promise.race([reading, cancelled]); }
+  finally { signal?.removeEventListener('abort', abort); }
 }

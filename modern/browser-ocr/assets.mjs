@@ -1,8 +1,15 @@
-const urls = new Map();
+const urls = new Map(), decoded = new Map();
+/** An embedded asset's bytes, decoded once a page (a recognizer made again does not decode its
+ *  model again); a caller that hands them to a worker sends a copy. */
 export function bytes(name) {
-  const value = globalThis.AUTHORITIES_ASSETS?.[name];
-  if (!value) throw new Error(`The packaged runtime is missing ${name}.`);
-  return Uint8Array.from(atob(value), c => c.charCodeAt(0));
+  if (!decoded.has(name)) {
+    const value = globalThis.AUTHORITIES_ASSETS?.[name];
+    if (!value) throw new Error(`The packaged runtime is missing ${name}.`);
+    const text = atob(value), out = new Uint8Array(text.length);
+    for (let index = 0; index < text.length; index += 1) out[index] = text.charCodeAt(index);
+    decoded.set(name, out);
+  }
+  return decoded.get(name);
 }
 export function assetURL(name, mime = 'application/javascript') {
   // Match Legal Browser OCR: a file-origin child worker cannot import sibling blob:null modules, and
