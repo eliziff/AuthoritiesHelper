@@ -35,7 +35,11 @@ async function buildFrontend() {
   const { codeSplitting: _groups, ...output } = loaded.config.build?.rolldownOptions?.output ?? {};
   const result = await build({ ...loaded.config, root: frontend, configFile: false, logLevel: "warn",
     plugins: [...(loaded.config.plugins ?? []), {name:'browser-pdf-text',enforce:'pre',
-      resolveId(source) { if(source === './standalonePdfText') return path.join(here,'standalone-pdf-text.mjs'); }}],
+      resolveId(source) {
+        if(source === './standalonePdfText') return path.join(here,'standalone-pdf-text.mjs');
+        // The viewer's PDF.js worker comes from the page bridge, gzipped, not inlined as a data: URL.
+        if(source === './pdfWorkerUrl') return path.join(here,'standalone-pdf-worker.mjs');
+      }}],
     build: { ...loaded.config.build, outDir, emptyOutDir: true, modulePreload: false,
       cssCodeSplit: false, assetsInlineLimit: () => true,
       rolldownOptions: { ...loaded.config.build?.rolldownOptions,
@@ -99,6 +103,7 @@ export async function buildAuthoritiesHtml(output) {
   for (const name of packed) ocr[name] = gzip(Buffer.from(ocr[name], "base64"));
   const bridge = await bundleBridge({
     runtime: gzip(Buffer.from(runtime.code)), relayUrl, ocr: { ...ocr, gzip: packed }, engine: gzip(engine),
+    viewerPdfWorker: gzip(readFileSync(path.join(frontend, "node_modules/pdfjs-dist/legacy/build/pdf.worker.min.mjs"))),
     fonts: Object.fromEntries(readdirSync(fonts).filter((name) => !name.startsWith("LICENSE"))
       .map((name) => [name, gzip(readFileSync(path.join(fonts, name)))])),
   }, ocrKey);

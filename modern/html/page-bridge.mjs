@@ -26,6 +26,17 @@ const decode = (base64) => {
   return bytes;
 };
 const inflate = (base64) => new Response(new Blob([decode(base64)]).stream().pipeThrough(new DecompressionStream("gzip")));
+// The viewer's PDF.js worker, inflated once when PDF.js first asks, as a data: URL: a module worker
+// started from a file:// page cannot load a blob:null one.
+let viewerWorker;
+globalThis.AUTHORITIES_PDF_WORKER_URL = () => viewerWorker ??= inflate(payload.viewerPdfWorker).blob()
+  .then((blob) => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result); reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(new Blob([blob], { type: "text/javascript" }));
+  }));
+// Ready before the first PDF opens, once the page is idle.
+(globalThis.requestIdleCallback ?? setTimeout)(() => globalThis.AUTHORITIES_PDF_WORKER_URL().catch(() => {}));
 
 const pending = new Map();
 const recognition = new Map();
