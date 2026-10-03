@@ -4,8 +4,6 @@
 // cargo and the wasm32-wasip1 target installed; the engine is compiled here.
 //
 //   node AuthoritiesHelper/modern/html/build.mjs [output.html]
-//   node AuthoritiesHelper/modern/html/build.mjs --relay [relay-worker.js]
-// AUTHORITIES_RELAY_URL names the deployed relay the page uses for publisher sources.
 import { browserOcrAssets, browserOcrKey } from '../browser-ocr/package.mjs';
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -22,8 +20,6 @@ import { SIGNATURES } from "./structure-addon.mjs";
 const here = import.meta.dirname, repo = path.resolve(here, "../../.."), frontend = path.join(repo, "frontend");
 const engineCrate = path.join(repo, "native/legal-structure-node");
 const fonts = path.join(frontend, "node_modules/pdfjs-dist/standard_fonts");
-// The publisher relay (relay-worker.mjs) as deployed; empty leaves remote sources unavailable.
-const relayUrl = process.env.AUTHORITIES_RELAY_URL ?? "";
 
 async function buildFrontend() {
   const require = createRequire(path.join(frontend, "package.json"));
@@ -104,7 +100,7 @@ export async function buildAuthoritiesHtml(output) {
   const packed = ["model", "ortMjs", "ortWasm", "recognitionWorker", "layoutCore", "layoutWasm", "pdfWorker", "rasterWorker"];
   for (const name of packed) ocr[name] = gzip(Buffer.from(ocr[name], "base64"));
   const payload = {
-    runtime: gzip(Buffer.from(runtime.code)), relayUrl, ocr: { ...ocr, gzip: packed }, engine: gzip(engine),
+    runtime: gzip(Buffer.from(runtime.code)), ocr: { ...ocr, gzip: packed }, engine: gzip(engine),
     viewerPdfWorker: gzip(readFileSync(path.join(frontend, "node_modules/pdfjs-dist/legacy/build/pdf.worker.min.mjs"))),
     fonts: Object.fromEntries(readdirSync(fonts).filter((name) => !name.startsWith("LICENSE"))
       .map((name) => [name, gzip(readFileSync(path.join(fonts, name)))])),
@@ -124,22 +120,9 @@ export async function buildAuthoritiesHtml(output) {
   return { bytes: Buffer.byteLength(page), runtimeModules: runtime.inputs.length };
 }
 
-/** The relay Worker (relay-worker.mjs) as one module for Cloudflare. */
-export async function buildRelay(output) {
-  const { build } = createRequire(path.join(repo, "backend/package.json"))("esbuild");
-  await build({ entryPoints: [path.join(here, "relay-worker.mjs")], bundle: true, outfile: output,
-    format: "esm", platform: "neutral", target: "es2022", minify: true, legalComments: "none" });
-}
-
 if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
-  const args = process.argv.slice(2), relay = args.includes("--relay");
-  const target = args.find((value) => !value.startsWith("--"));
-  if (relay) {
-    const output = path.resolve(target ?? path.join(here, "../out/relay-worker.js"));
-    await buildRelay(output); console.log(`Built ${output}`);
-  } else {
-    const output = path.resolve(target ?? path.join(here, "../out/Authorities.html"));
-    const { bytes } = await buildAuthoritiesHtml(output);
-    console.log(`Built ${output} (${bytes} bytes)`);
-  }
+  const target = process.argv.slice(2).find((value) => !value.startsWith("--"));
+  const output = path.resolve(target ?? path.join(here, "../out/Authorities.html"));
+  const { bytes } = await buildAuthoritiesHtml(output);
+  console.log(`Built ${output} (${bytes} bytes)`);
 }

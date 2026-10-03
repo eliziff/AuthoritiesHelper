@@ -97,7 +97,7 @@ const ready = inflate(payload.runtime).blob().then((code) => new Promise((resolv
     else if (data.type === "end") request.end();
     else if (data.type === "error") request.fail(new Error(data.message));
   };
-  worker.postMessage({ type: "init", engine: payload.engine, relayUrl: payload.relayUrl });
+  worker.postMessage({ type: "init", engine: payload.engine });
 }));
 ready.catch(() => { /* each request reports it */ });
 

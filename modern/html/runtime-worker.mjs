@@ -163,7 +163,6 @@ self.onmessage = async ({ data }) => {
   } else if (data.type === "init") {
     try {
       await loadEngine(data.engine);
-      globalThis.AUTHORITIES_RELAY_URL = data.relayUrl;
       router = createAuthoritiesRuntimeRouter((_request, response, next) => {
         response.locals.userId = STANDALONE_USER; next();
       });

@@ -37,12 +37,9 @@ cargo build --locked --release --target wasm32-wasip1 --manifest-path native/leg
 npm run build:authorities-html
 ```
 
-A2AJ answers browsers directly. Publisher sites do not, so remote source
-retrieval goes through the relay Worker in [html/relay-worker.mjs](html/relay-worker.mjs),
-which reaches only the resolver's legal-source hosts and never CanLII. Deploy it
-with `node html/build.mjs --relay` and
-`npx wrangler deploy --config html/relay-wrangler.jsonc`, then build with
-`AUTHORITIES_RELAY_URL` set to its address. Without it, sources are attached
+A2AJ answers browsers directly. Publisher sites do not, so court decisions and official
+legislation PDFs come through the provider PDF service, the `quiet-wildflower-ab0d` Worker
+built from [authorities-lite/worker.mjs](authorities-lite/worker.mjs); any other source is attached
 manually. The HTML package embeds the OCR model, runtime, layout workers and
 PDF worker. Scanned pages are recognized in the browser and passed to the
 shared PDF parser with their page geometry. The recognition WebAssembly in
