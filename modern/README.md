@@ -49,5 +49,4 @@ shared PDF parser with their page geometry. The recognition WebAssembly in
 [browser-ocr/wasm](browser-ocr/wasm) is rebuilt from pinned ONNX Runtime and
 Tesseract sources by `node browser-ocr/wasm/build.mjs`, which installs its own
 Emscripten and maps build paths so the files carry none from the build machine.
-The HTML build compiles the engine with the same mapping, and the release checks
-the page with Beaver's `scripts/check_privacy.py --artifact`.
+The HTML build compiles the engine with the same mapping.

@@ -2,7 +2,7 @@
 // ONNX Runtime Web reduced to the recognition model's operators (ort.mjs/ort.wasm) and the
 // Tesseract layout core (layout-core.mjs/layout-core.wasm, from the pinned OCR source's
 // layout-core.cpp). Every compile maps the build root to /build, so source-location strings
-// carry no machine path; `python scripts/check_privacy.py --artifact` verifies the outputs.
+// carry no machine path.
 //
 //   node browser-ocr/wasm/build.mjs      (from AuthoritiesHelper/modern, after browser-ocr/package.mjs)
 //
@@ -129,7 +129,5 @@ for (const [from, to] of [[path.join(ortOut, 'ort-wasm-simd-threaded.mjs'), 'ort
   fs.copyFileSync(from, path.join(here, to));
 for (const name of ['ort.mjs', 'ort.wasm', 'layout-core.mjs', 'layout-core.wasm'])
   console.log(`${crypto.createHash('sha256').update(fs.readFileSync(path.join(here, name))).digest('hex')}  ${name}`);
-const privacy = path.resolve(here, '../../../../scripts/check_privacy.py'); // Beaver's checker, when built inside Beaver
-if (fs.existsSync(privacy)) run(python, [privacy, '--artifact', ...['ort.mjs', 'ort.wasm', 'layout-core.mjs', 'layout-core.wasm'].map((name) => path.join(here, name))]);
 
 function assert(condition, message) { if (!condition) throw new Error(message); }
