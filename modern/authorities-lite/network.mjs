@@ -1,7 +1,7 @@
 // MIT. Publisher representation discovery is reused from Beaver.
 import { DECISIA_HOSTS, legislationPdfUrl, publisherChallengeUrl, publisherPdfCandidate, verifiedDecisiaPdf, rankedPublisherPdfLinks } from './publisher.mjs';
 export { DECISIA_HOSTS, LEGISLATION_PDF_HOSTS } from './publisher.mjs';
-export const LIMITS = { html: 2_000_000, pdf: 100 * 1024 * 1024, hops: 5, milliseconds: 60_000 };
+export const LIMITS = { html: 2_000_000, statuteHtml: 40_000_000, pdf: 100 * 1024 * 1024, hops: 5, milliseconds: 60_000 };
 export class SourceError extends Error {
   constructor(message, status = 502, code = 'publisher_error', verificationUrl = null) { super(message); this.status = status; this.code = code; this.verificationUrl = verificationUrl; }
 }
@@ -73,6 +73,30 @@ async function publisherFetch(url, source, fetcher, signal) {
     const challengeUrl = publisherChallengeUrl('', url);
     if (challengeUrl) throw verificationError(challengeUrl);
   }
+}
+/** A LégisQuébec consolidation page, the one publisher whose statute text a rebuild reads (its
+ *  official text has no other public source): its HTML, bounded, from that page alone. */
+export const STATUTE_TEXT_PAGE = /^\/(?:en|fr)\/document\/c[rs]\/[A-Za-z0-9.,%\- ]{1,80}$/u;
+export async function acquireStatuteText(raw, fetcher = fetch, signal) {
+  let url;
+  try { url = new URL(raw); } catch { throw new SourceError('Invalid publisher URL.', 400, 'invalid_source'); }
+  const page = (value) => value.protocol === 'https:' && value.hostname === 'www.legisquebec.gouv.qc.ca' &&
+    !value.username && !value.password && !value.search && STATUTE_TEXT_PAGE.test(value.pathname);
+  if (!page(url)) throw new SourceError('Only a LégisQuébec consolidation page is read as text.', 400, 'invalid_source');
+  for (let hop = 0; hop <= LIMITS.hops; hop++) {
+    const response = await fetcher(url.href, { redirect: 'manual', credentials: 'omit', referrerPolicy: 'no-referrer',
+      headers: { Accept: 'text/html,application/xhtml+xml', 'User-Agent': 'Mozilla/5.0 (compatible; Beaver-Authorities/1.0)' }, signal });
+    if ([301, 302, 303, 307, 308].includes(response.status)) {
+      const location = response.headers.get('location'); await discard(response);
+      const next = location && new URL(location, url);
+      if (!next || !page(next)) throw new SourceError('Publisher redirected outside its consolidation pages.', 502, 'unsafe_redirect');
+      url = next; continue;
+    }
+    if (!response.ok) { await discard(response); throw new SourceError(`Publisher returned HTTP ${response.status}.`, response.status === 404 ? 404 : 502, 'publisher_http'); }
+    if (!['text/html', 'application/xhtml+xml'].includes(mediaType(response))) { await discard(response); throw new SourceError('Publisher did not return a page.', 502, 'not_html'); }
+    return { html: new TextDecoder().decode(await readBounded(response, LIMITS.statuteHtml)), url: url.href };
+  }
+  throw new SourceError('Publisher redirect limit exceeded.', 502, 'redirect_limit');
 }
 // Stream without holding the whole PDF in the Worker; enforce a cap even without Content-Length.
 export async function validatedPdfStream(response, finish = () => {}) {

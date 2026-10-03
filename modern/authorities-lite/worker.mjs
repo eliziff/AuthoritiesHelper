@@ -1,5 +1,5 @@
 // MIT. Public-publisher retrieval only: no PDF uploads, OCR, or document storage.
-import { acquirePdf, DECISIA_HOSTS, LEGISLATION_PDF_HOSTS, LIMITS, SourceError } from './network.mjs';
+import { acquirePdf, acquireStatuteText, DECISIA_HOSTS, LEGISLATION_PDF_HOSTS, LIMITS, SourceError } from './network.mjs';
 export function createWorker(fetcher = fetch) {
   return {
     async fetch(request, env = {}) {
@@ -22,7 +22,7 @@ export function createWorker(fetcher = fetch) {
       state.headers = headers;
       const json = (data, status = 200) => new Response(JSON.stringify(data), { status, headers: { ...headers, 'Content-Type': 'application/json' } });
       if (origin && !allowed.has(origin)) return json({ error: 'This application origin is not permitted.', code: 'origin_denied' }, 403);
-      if (!['/pdf', '/health'].includes(incoming.pathname)) return json({ error: 'Not found.' }, 404);
+      if (!['/pdf', '/text', '/health'].includes(incoming.pathname)) return json({ error: 'Not found.' }, 404);
       if (request.method === 'OPTIONS') {
         const method = request.headers.get('access-control-request-method');
         const requested = request.headers.get('access-control-request-headers');
@@ -41,6 +41,11 @@ export function createWorker(fetcher = fetch) {
       const abort = () => controller.abort(); request.signal?.addEventListener('abort', abort, { once: true });
       const finish = () => { clearTimeout(timer); request.signal?.removeEventListener('abort', abort); };
       try {
+        // A statute's consolidation page, for the text a rebuild reads.
+        if (incoming.pathname === '/text') {
+          const page = await acquireStatuteText(raw, fetcher, controller.signal); finish();
+          return new Response(page.html, { status: 200, headers: { ...headers, 'Content-Type': 'text/html; charset=utf-8', 'X-Publisher-Pdf-Url': page.url } });
+        }
         const pdf = await acquirePdf(raw, fetcher, controller.signal, finish);
         const output = { ...headers, 'Content-Type': 'application/pdf', 'Content-Disposition': 'attachment; filename="authority.pdf"', 'X-Publisher-Pdf-Url': pdf.url };
         if (/^\d+$/.test(pdf.length || '')) output['Content-Length'] = pdf.length;
