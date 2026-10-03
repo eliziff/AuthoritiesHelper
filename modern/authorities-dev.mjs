@@ -14,9 +14,13 @@ const native = process.env.LEGAL_STRUCTURE_NATIVE || library;
 const pdfEngine = process.env.LEGALPDF_ENGINE_ROOT || path.join(root, "legal-pdf-parser");
 if (!existsSync(native)) throw new Error(
   "Build the pinned native engine first: cargo build --locked --release --manifest-path native/legal-structure-node/Cargo.toml");
-await buildAuthoritiesFrontend(stage);
-await bundleAuthorities(stage);
+if (!process.argv.includes("--reuse-stage")) {
+  await buildAuthoritiesFrontend(stage);
+  await bundleAuthorities(stage);
+}
 const entry = path.join(stage, "backend/dist/authoritiesStandalone.js");
+if (!existsSync(entry) || !existsSync(path.join(stage, "frontend/dist/authorities.html")))
+  throw new Error("Staged Authorities build missing. Run npm run dev:authorities first.");
 const buildId = createHash("sha256").update(readFileSync(entry))
   .update(readFileSync(path.join(stage, "frontend/dist/authorities.html"))).digest("hex");
 const child = spawn(process.execPath, [entry], { cwd: root, stdio: "inherit",

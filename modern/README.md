@@ -13,6 +13,15 @@ npm run test:authorities-package
 npm run package:authorities
 ```
 
+To restart an already verified staged build without rebuilding either surface:
+
+```powershell
+node AuthoritiesHelper/modern/authorities-dev.mjs --reuse-stage
+```
+
+This starts the existing artifacts; source changes require rebuilding the affected
+stage before reuse.
+
 The package command writes `modern/out/Authorities-win-x64.zip`. Generated
 packages and runtimes are never committed.
 
