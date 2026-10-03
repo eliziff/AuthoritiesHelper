@@ -6,7 +6,6 @@
 import { DECISIA_HOSTS, LEGISLATION_PDF_HOSTS } from "../authorities-lite/publisher.mjs";
 
 import { DEFAULT_SERVICE_URL } from "../provider-pdf-service.mjs";
-import { STATUTE_TEXT_PAGE } from "../authorities-lite/network.mjs";
 import { keepAnswer, keepPdf, keptAnswer, keptPdf } from "./source-pdf-cache.mjs";
 
 const DIRECT_HOSTS = new Set(["api.a2aj.ca"]);
@@ -55,17 +54,6 @@ async function publisherPdf(url, init) {
   return new Response(bytes, { status: response.status, headers: response.headers });
 }
 
-async function statuteText(url, init) {
-  const service = new URL("text", DEFAULT_SERVICE_URL);
-  service.searchParams.set("source", url.href);
-  const response = await globalThis.fetch(service, { signal: init.signal, credentials: "omit", referrerPolicy: "no-referrer" });
-  if (!response.ok) {
-    const detail = await response.json().catch(() => null);
-    throw Object.assign(new Error(detail?.error ?? `The publisher service could not reach ${url.hostname}.`), { code: detail?.code });
-  }
-  return response;
-}
-
 export class Agent {
   constructor() {}
   close() { return Promise.resolve(); }
@@ -78,8 +66,6 @@ export async function fetch(input, init = {}) {
     return directAnswer(url, { ...rest, credentials: "omit", referrerPolicy: "no-referrer",
       redirect: redirect === "manual" ? "follow" : redirect });
   }
-  // A LégisQuébec consolidation page is read for its text, through the same service.
-  if (url.hostname === "www.legisquebec.gouv.qc.ca" && STATUTE_TEXT_PAGE.test(url.pathname)) return statuteText(url, rest);
   if (PUBLISHER_HOSTS.has(url.hostname)) return publisherPdf(url, rest);
   throw new Error(`${url.hostname} cannot be reached from this page. Attach the PDF instead.`);
 }
