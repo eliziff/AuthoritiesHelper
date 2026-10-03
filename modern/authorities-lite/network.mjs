@@ -1,6 +1,6 @@
 // MIT. Publisher representation discovery is reused from Beaver.
-import { DECISIA_HOSTS, publisherChallengeUrl, publisherPdfCandidate, verifiedDecisiaPdf, rankedPublisherPdfLinks } from './publisher.mjs';
-export { DECISIA_HOSTS } from './publisher.mjs';
+import { DECISIA_HOSTS, legislationPdfUrl, publisherChallengeUrl, publisherPdfCandidate, verifiedDecisiaPdf, rankedPublisherPdfLinks } from './publisher.mjs';
+export { DECISIA_HOSTS, LEGISLATION_PDF_HOSTS } from './publisher.mjs';
 export const LIMITS = { html: 2_000_000, pdf: 100 * 1024 * 1024, hops: 5, milliseconds: 60_000 };
 export class SourceError extends Error {
   constructor(message, status = 502, code = 'publisher_error', verificationUrl = null) { super(message); this.status = status; this.code = code; this.verificationUrl = verificationUrl; }
@@ -8,6 +8,10 @@ export class SourceError extends Error {
 export function sourceUrl(raw) {
   let url;
   try { url = new URL(raw); } catch { throw new SourceError('Invalid publisher URL.', 400, 'invalid_source'); }
+  // An official statute or regulation PDF: one of the paths each legislation publisher serves its
+  // PDFs at (Manitoba's with its query), checked whole.
+  const legislation = !url.username && !url.password && legislationPdfUrl(url);
+  if (legislation) return legislation;
   const bc = ['www.bccourts.ca', 'bccourts.ca'].includes(url.hostname);
   const validPath = DECISIA_HOSTS.has(url.hostname)
     ? /^\/[a-z0-9/_-]+\/(?:item\/\d+\/index\.do|\d+\/document\.do)$/i.test(url.pathname)
@@ -45,8 +49,10 @@ async function publisherFetch(url, source, fetcher, signal) {
     // Check every redirect before fetching it, not merely the initial URL.
     const checked = sourceUrl(url.href);
     if (checked.origin !== source.origin) throw new SourceError('Publisher redirected outside its approved origin.', 502, 'unsafe_redirect');
+    // A publisher that refuses a client that does not name itself (LégisQuébec) gets one that does.
     const response = await fetcher(url.href, { redirect: 'manual', credentials: 'omit', referrerPolicy: 'no-referrer',
-      headers: { Accept: 'application/pdf,text/html,application/xhtml+xml;q=0.9,application/octet-stream;q=0.8' }, signal });
+      headers: { Accept: 'application/pdf,text/html,application/xhtml+xml;q=0.9,application/octet-stream;q=0.8',
+        'User-Agent': 'Mozilla/5.0 (compatible; Beaver-Authorities/1.0)' }, signal });
     if (![301, 302, 303, 307, 308].includes(response.status)) {
       if (['text/html', 'application/xhtml+xml'].includes(mediaType(response))) {
         const body = await readBounded(response, LIMITS.html);

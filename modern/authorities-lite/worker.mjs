@@ -1,5 +1,5 @@
 // MIT. Public-publisher retrieval only: no PDF uploads, OCR, or document storage.
-import { acquirePdf, DECISIA_HOSTS, LIMITS, SourceError } from './network.mjs';
+import { acquirePdf, DECISIA_HOSTS, LEGISLATION_PDF_HOSTS, LIMITS, SourceError } from './network.mjs';
 export function createWorker(fetcher = fetch) {
   return {
     async fetch(request, env = {}) {
@@ -31,7 +31,7 @@ export function createWorker(fetcher = fetch) {
       }
       if (request.method !== 'GET') return json({ error: 'Only GET is supported.' }, 405);
       if (incoming.pathname === '/health') return json({ ok: true, service: 'authorities-provider-pdf', version: 2,
-        public: true, publishers: [...DECISIA_HOSTS, 'www.bccourts.ca', 'bccourts.ca'] });
+        public: true, publishers: [...DECISIA_HOSTS, 'www.bccourts.ca', 'bccourts.ca', ...LEGISLATION_PDF_HOSTS] });
       // Optional Cloudflare rate-limit binding; no in-memory pseudo-global rate limiting.
       if (env.RATE_LIMITER && !(await env.RATE_LIMITER.limit({ key: request.headers.get('CF-Connecting-IP') || 'unknown' })).success) return json({ error: 'Too many downloads. Retry shortly.', code: 'rate_limited' }, 429);
       const raw = incoming.searchParams.get('source');

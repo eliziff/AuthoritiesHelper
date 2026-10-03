@@ -4,7 +4,7 @@
 // publisher's own PDF for a decision page or PDF URL. Any other source goes through
 // the Authorities relay, which returns the upstream status, headers and redirects
 // that the runtime's own redirect handling expects.
-import { DECISIA_HOSTS } from "../authorities-lite/publisher.mjs";
+import { DECISIA_HOSTS, LEGISLATION_PDF_HOSTS } from "../authorities-lite/publisher.mjs";
 
 import { DEFAULT_SERVICE_URL } from "../provider-pdf-service.mjs";
 import { keepAnswer, keepPdf, keptAnswer, keptPdf } from "./source-pdf-cache.mjs";
@@ -24,7 +24,7 @@ async function directAnswer(url, init) {
   keepAnswer(url.href, body, Date.now() + ANSWER_TTL_MS);
   return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
 }
-const PUBLISHER_HOSTS = new Set([...DECISIA_HOSTS, "www.bccourts.ca", "bccourts.ca"]);
+const PUBLISHER_HOSTS = new Set([...DECISIA_HOSTS, "www.bccourts.ca", "bccourts.ca", ...LEGISLATION_PDF_HOSTS]);
 
 async function publisherPdf(url, init) {
   if ((init.method ?? "GET").toUpperCase() !== "GET")
