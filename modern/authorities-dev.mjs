@@ -13,7 +13,7 @@ const native = process.env.LEGAL_STRUCTURE_NATIVE || library;
 // The bundle runs from the stage directory, so name the PDF engine's runtime assets explicitly.
 const pdfEngine = process.env.LEGALPDF_ENGINE_ROOT || path.join(root, "legal-pdf-parser");
 if (!existsSync(native)) throw new Error(
-  "Build the pinned native engine first: cargo build --locked --release --manifest-path native/legal-structure-node/Cargo.toml");
+  "Build the pinned native engine first: npm run native:build");
 if (!process.argv.includes("--reuse-stage")) {
   await buildAuthoritiesFrontend(stage);
   await bundleAuthorities(stage);
