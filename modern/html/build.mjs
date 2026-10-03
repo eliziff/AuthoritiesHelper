@@ -28,6 +28,7 @@ async function buildFrontend() {
     path.join(frontend, "vite.config.ts"), frontend);
   assert(loaded, "Authorities could not load the frontend build config");
   const outDir = mkdtempSync(path.join(tmpdir(), "authorities-html-"));
+  try {
   const { codeSplitting: _groups, ...output } = loaded.config.build?.rolldownOptions?.output ?? {};
   const result = await build({ ...loaded.config, root: frontend, configFile: false, logLevel: "warn",
     plugins: [...(loaded.config.plugins ?? []), {name:'browser-pdf-text',enforce:'pre',
@@ -50,8 +51,10 @@ async function buildFrontend() {
   const css = outputs.filter((item) => item.type === "asset" && item.fileName.endsWith(".css"))
     .map((item) => String(item.source)).join("\n");
   const html = readFileSync(path.join(outDir, "authorities.html"), "utf8");
-  rmSync(outDir, { recursive: true, force: true });
   return { html, script: chunks[0].code, css };
+  } finally {
+    rmSync(outDir, { recursive: true, force: true });
+  }
 }
 
 async function bundleScript(entry, define) {
