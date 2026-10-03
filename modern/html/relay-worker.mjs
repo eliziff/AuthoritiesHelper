@@ -3,10 +3,10 @@
 // origins, so the page asks this relay to make those requests. It reaches only the
 // legal-source hosts the resolver itself names, never CanLII, and returns the upstream
 // status, headers and redirects unchanged for the resolver's own redirect handling.
-import { DECISIA_HOSTS } from "../../../backend/src/lib/legalSourcePresentation";
+import { DECISIA_HOSTS, LEGISLATION_PDF_HOSTS } from "../../../backend/src/lib/legalSourcePresentation";
 
 // Provider hosts from backend/src/lib/legalSources/* and providerPdfLibraryBridge.ts.
-const HOSTS = new Set([...DECISIA_HOSTS, "caselaw.nationalarchives.gov.uk", "www.courtlistener.com",
+const HOSTS = new Set([...DECISIA_HOSTS, ...LEGISLATION_PDF_HOSTS, "caselaw.nationalarchives.gov.uk", "www.courtlistener.com",
   "storage.courtlistener.com", "archive.org", "api.govinfo.gov", "www.govinfo.gov", "www.gov.uk",
   "www.bccourts.ca", "www.scc-csc.ca", "api.a2aj.ca"]);
 const ORIGINS = new Set(["null"]);
