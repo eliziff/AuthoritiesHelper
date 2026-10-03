@@ -58,10 +58,10 @@ async function buildFrontend() {
   return { html, script: chunks[0].code, css };
 }
 
-async function bundleBridge(payload, ocrKey) {
+async function bundleScript(entry, define) {
   const { build } = createRequire(path.join(repo, "backend/package.json"))("esbuild");
-  const result = await build({ entryPoints: [path.join(here, "page-bridge.mjs")], bundle: true, write: false,
-    format: "iife", target: "es2022", minify: true, define: { __AUTHORITIES_PAYLOAD__: JSON.stringify(payload), __OCR_RUNTIME_SHA256__: JSON.stringify(ocrKey) } });
+  const result = await build({ entryPoints: [path.join(here, entry)], bundle: true, write: false,
+    format: "iife", target: "es2022", minify: true, define });
   return result.outputFiles[0].text;
 }
 
@@ -95,18 +95,22 @@ export async function buildAuthoritiesHtml(output) {
     pdfWorker: readFileSync(path.join(here, "../vendor/runtime/dist/pdf.worker.min.mjs")).toString("base64") };
   // Named for what is recognized (recognized text is kept by it), before the assets are packed.
   const ocrKey = browserOcrKey(ocr);
+  // The worker that draws the pages to recognize: page code, like recognize-pdf.mjs, not in the key.
+  ocr.rasterWorker = Buffer.from(await bundleScript("raster-worker.mjs")).toString("base64");
   // Gzip keeps the page small (these assets, the runtime and the fonts go in at a third of their
   // size): the page inflates the runtime as it starts and the recognizer's assets before the first
   // page is read, and the runtime Worker its engine, all off the main thread.
   const gzip = (bytes) => gzipSync(bytes, { level: 9 }).toString("base64");
-  const packed = ["model", "ortMjs", "ortWasm", "recognitionWorker", "layoutCore", "layoutWasm", "pdfWorker"];
+  const packed = ["model", "ortMjs", "ortWasm", "recognitionWorker", "layoutCore", "layoutWasm", "pdfWorker", "rasterWorker"];
   for (const name of packed) ocr[name] = gzip(Buffer.from(ocr[name], "base64"));
-  const bridge = await bundleBridge({
+  const payload = {
     runtime: gzip(Buffer.from(runtime.code)), relayUrl, ocr: { ...ocr, gzip: packed }, engine: gzip(engine),
     viewerPdfWorker: gzip(readFileSync(path.join(frontend, "node_modules/pdfjs-dist/legacy/build/pdf.worker.min.mjs"))),
     fonts: Object.fromEntries(readdirSync(fonts).filter((name) => !name.startsWith("LICENSE"))
       .map((name) => [name, gzip(readFileSync(path.join(fonts, name)))])),
-  }, ocrKey);
+  };
+  const bridge = await bundleScript("page-bridge.mjs",
+    { __AUTHORITIES_PAYLOAD__: JSON.stringify(payload), __OCR_RUNTIME_SHA256__: JSON.stringify(ocrKey) });
   // Drop the build's external tags; the page carries everything inline.
   const page = html
     .replace(/<script\b[^>]*\bsrc=[^>]*><\/script>\s*/gu, "")

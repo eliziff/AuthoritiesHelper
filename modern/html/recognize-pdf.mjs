@@ -1,27 +1,46 @@
 // Rendering/recognition adapter; the Rust parser still owns page selection and structure.
-import { getDocument, PDFWorker } from 'pdfjs-dist/build/pdf.mjs';
 import { assetsReady, assetURL } from '../browser-ocr/assets.mjs';
 import { OCR_PARALLEL, recognizePage } from '../browser-ocr/ocr.mjs';
 
-// PDF.js decodes pages in its own worker. Started from a file:// page, PDF.js cannot load the worker
-// itself (it wraps the script in a blob:null module that may not import another) and silently runs
-// it on the main thread, where decoding a scanned page blocks the page for hundreds of ms.
-let pdfWorker;
-const worker = () => pdfWorker ??= new PDFWorker({ port: new Worker(assetURL('pdfWorker'), { type: 'module' }) });
+// PDF.js opens and draws the pages in one worker (raster-worker.mjs), made once, so this thread never
+// draws or reads a page's pixels (50-100 ms a page): it only routes them to the recognizer's workers.
+let raster, asked = 0;
+const answers = new Map();
+function rasterWorker() {
+  const worker = new Worker(assetURL('rasterWorker'));
+  worker.onmessage = ({ data }) => {
+    const answer = answers.get(data.id); if (!answer) return;
+    answers.delete(data.id); data.error === undefined ? answer.resolve(data) : answer.reject(new Error(data.error));
+  };
+  worker.onerror = (event) => {
+    for (const answer of answers.values()) answer.reject(new Error(event.message || 'The PDF renderer failed.'));
+    answers.clear();
+  };
+  // PDF.js decodes JPEG with the browser except in Chrome, which it tells by `globalThis.chrome`.
+  worker.postMessage({ pdfWorker: assetURL('pdfWorker'), imageDecoder: navigator.userAgent.includes('Firefox') || !globalThis.chrome });
+  return worker;
+}
+function ask(message, transfer) {
+  raster ??= rasterWorker();
+  return new Promise((resolve, reject) => {
+    answers.set(++asked, { resolve, reject });
+    raster.postMessage({ ...message, id: asked }, transfer);
+  });
+}
 
 // A source's PDF.js document, opened once for every pass and page reading it, and closed
-// when none is left.
+// when none is left. Opening it gives its page count.
 const documents = new Map();
 function useDocument(source, bytes) {
   let entry = documents.get(source);
-  if (!entry) documents.set(source, entry = { users: 0, task: null,
-    // A copy: PDF.js takes the bytes it is given to its worker.
-    open: async () => (await assetsReady(), entry.task ??= getDocument({ data: bytes.slice(), isEvalSupported: false,
-      useSystemFonts: true, worker: worker() })).promise });
+  if (!entry) documents.set(source, entry = { users: 0, pages: null,
+    // A copy: the worker takes the bytes it is given.
+    open: () => entry.pages ??= assetsReady().then(() => { const copy = bytes.slice();
+      return ask({ open: source, bytes: copy }, [copy.buffer]); }).then(({ pages }) => pages) });
   entry.users += 1;
   return { open: entry.open, close() {
     if (--entry.users) return;
-    documents.delete(source); void entry.task?.destroy();
+    documents.delete(source); if (entry.pages) raster?.postMessage({ close: source });
   } };
 }
 
@@ -86,30 +105,23 @@ async function recognizeOne(source, key, bytes, page_index, signal) {
   const found = (await readCache(key))?.pages.find(page=>page.page_index===page_index);
   if (found) return found;
   const pdf = useDocument(source, bytes);
+  let drawn;
   try {
-    const page = await (await pdf.open()).getPage(page_index + 1);
-    const raw = page.view, rotated = page.rotate % 180 !== 0;
-    const width = raw[rotated ? 3 : 2] - raw[rotated ? 1 : 0];
-    const height = raw[rotated ? 2 : 3] - raw[rotated ? 0 : 1];
-    let viewport = page.getViewport({ scale: 200 / 72 });
-    if (viewport.width * viewport.height > 12_000_000)
-      viewport = page.getViewport({ scale: viewport.scale * Math.sqrt(12_000_000 / (viewport.width * viewport.height)) });
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.ceil(viewport.width); canvas.height = Math.ceil(viewport.height);
-    try {
-      await page.render({ canvasContext: canvas.getContext('2d', { willReadFrequently: true }), viewport }).promise;
-      const recognized = await recognizePage(canvas, signal);
-      const x = value => Math.max(0, Math.min(width, value * width / viewport.width));
-      const y = value => Math.max(0, Math.min(height, value * height / viewport.height));
-      const result = { page_index, width, height, lines: recognized.map(line => ({
-        text: line.text, confidence: 0.5,
-        bbox: [x(line.x), y(line.y), x(line.x + line.width), y(line.y + line.height)],
-      })) };
-      signal.throwIfAborted();
-      await addCachedPage(key, source, result);
-      return result;
-    } finally { canvas.width = canvas.height = 1; page.cleanup(); }
-  } finally { pdf.close(); }
+    await pdf.open();
+    // The page at 200 dpi (at most 12 MP), drawn and read in the raster worker.
+    drawn = await ask({ source, page: page_index });
+    const { width, height, viewportWidth, viewportHeight } = drawn;
+    const recognized = await recognizePage(drawn, signal);
+    const x = value => Math.max(0, Math.min(width, value * width / viewportWidth));
+    const y = value => Math.max(0, Math.min(height, value * height / viewportHeight));
+    const result = { page_index, width, height, lines: recognized.map(line => ({
+      text: line.text, confidence: 0.5,
+      bbox: [x(line.x), y(line.y), x(line.x + line.width), y(line.y + line.height)],
+    })) };
+    signal.throwIfAborted();
+    await addCachedPage(key, source, result);
+    return result;
+  } finally { drawn?.bitmap.close(); pdf.close(); }
 }
 export async function recognizePdf(bytes, sourceSha256, pages, signal, completed = () => {}, priorityPages = pages, order) {
   signal?.throwIfAborted();
@@ -121,7 +133,7 @@ export async function recognizePdf(bytes, sourceSha256, pages, signal, completed
   // Held for the whole pass, so its pages share one open document.
   const pdf = useDocument(sourceSha256, bytes);
   try {
-    if (!pages) pages = Array.from({length:(await pdf.open()).numPages},(_,index)=>index);
+    if (!pages) pages = Array.from({length:await pdf.open()},(_,index)=>index);
     completed(pages.filter(index=>retained.has(index)).length);
     await Promise.all(pages.filter(page_index => !retained.has(page_index)).map(async page_index => {
       signal?.throwIfAborted();
