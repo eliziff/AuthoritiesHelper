@@ -280,9 +280,9 @@ function etaText() {
   eta.smoothed = eta.smoothed === null ? remaining
     : eta.smoothed + (remaining > eta.smoothed ? 0.5 : 0.02) * (remaining - eta.smoothed);
   const seconds = Math.max(0, Math.round(eta.smoothed));
-  if (seconds < 90) return `About ${Math.max(seconds, 10)} sec left`;
+  if (seconds < 90) return `about ${Math.max(seconds, 10)} sec left`;
   const minutes = Math.ceil(seconds / 60);
-  return minutes < 60 ? `About ${minutes} min left` : `About ${Math.floor(minutes / 60)} h ${String(minutes % 60).padStart(2, "0")} min left`;
+  return minutes < 60 ? `about ${minutes} min left` : `about ${Math.floor(minutes / 60)} h ${String(minutes % 60).padStart(2, "0")} min left`;
 }
 
 // ---------------------------------------------------------------- CanLII step
@@ -338,7 +338,7 @@ function offerPdfs(files, tried) {
         else { applyAttachment(document, file, outcome); refusal = null; }
       }
       // A PDF no document waits for stays where it is; say why once, beside the folder.
-      state.folderNote = refusal ? `${file.name} was not added. ${refusal}` : "";
+      state.folderNote = !refusal ? "" : refusal.includes(file.name) ? refusal : `${file.name} was not added. ${refusal}`;
       save(); emit();
     }
   }).catch((error) => notice(errorText(error)));
@@ -555,13 +555,13 @@ function RunBar() {
   const { documents, running, stopping, settings } = state;
   const finished = documents.filter((document) => ["done", "failed", "stopped"].includes(document.status)).length;
   const active = documents.filter((document) => document.status === "running");
-  const fraction = documents.length ? documents.reduce((sum, document) => sum + (["done", "failed", "stopped"].includes(document.status)
+  const fraction = documents.length ? documents.reduce((sum, document) => sum + (["done", "failed"].includes(document.status)
     ? 1 : document.fraction), 0) / documents.length : 0;
   const results = documents.filter((document) => document.result?.workbook);
   const headline = running ? documents.length === 1 ? `Verifying ${documents[0].name}`
     : `${documents.length - finished} of ${documents.length} in progress${active.length > 1 ? ` · ${active.length} at once` : ""} · ${finished} finished`
     : results.length ? `${results.length} workbook${results.length === 1 ? "" : "s"} ready` : "Ready";
-  const sub = state.notice || (running ? stopping ? "Stopping after the current step…" : etaText() || "Working…"
+  const sub = state.notice || (running ? stopping ? "Stopping after the current step…" : [`${Math.floor(fraction * 100)}% done`, etaText()].filter(Boolean).join(" · ")
     : settings.fn_filter.trim() ? `Only footnotes ${settings.fn_filter.trim()} will be verified (Footnote filter in Settings).`
       : documents.length ? `${RUN_MODES.find((mode) => mode.value === (settings.local_only ? "free" : settings.run_mode)).label} mode. Change it in Settings.`
         : "Add documents, then press Run verification.");

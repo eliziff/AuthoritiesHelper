@@ -146,7 +146,7 @@ main.settings { overflow-y: auto; scrollbar-gutter: stable; }
 .folder-row { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .watching { display: inline-flex; align-items: center; gap: 8px; color: var(--ink-soft); font-size: 12.5px; }
 .watching::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--perfect); box-shadow: 0 0 0 3px rgba(120, 216, 166, 0.18); }
-.folder-row .alert { color: var(--no-match); }
+.folder-row .muted.alert { display: -webkit-box; color: var(--no-match); white-space: normal; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .folder-row .muted { font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .source-list { min-height: 0; margin: 0; padding: 0; overflow-y: auto; list-style: none; }
 .source { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 7px 2px; border-bottom: 1px solid var(--line); }

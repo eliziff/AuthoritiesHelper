@@ -84,12 +84,13 @@ if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) 
   const started = Date.now();
   const { bytes, runtimeModules } = await buildAlrHtml(output, { release: process.argv.includes("--release") });
   console.log(`Built ${output} (${bytes} bytes, ${runtimeModules} runtime modules, ${((Date.now() - started) / 1000).toFixed(1)} s)`);
+  // Every public page is checked: no private journal text, private-program names or API keys.
+  const { buildAlrExe, checkPublicHtml } = await import("./exe/build.mjs");
+  console.log("Public page check:", checkPublicHtml(output));
   // --all: every ALR output from this checkout: the viewer, then the private program from this page.
   if (process.argv.includes("--all")) {
     const { buildViewer } = await import("./viewer/build.mjs");
     console.log("Built the viewer:", await buildViewer({ outDir: path.dirname(output) }));
-    const { buildAlrExe, checkPublicHtml } = await import("./exe/build.mjs");
-    console.log("Public page check:", checkPublicHtml(output));
     const { exe, bytes: exeBytes } = await buildAlrExe({ publicHtml: output, outDir: path.dirname(output) });
     console.log(`Built ${exe} (${(exeBytes / 1e9).toFixed(2)} GB)`);
   }
