@@ -1,11 +1,10 @@
 import { holdBackground, recognizePdf, readRecognizedText, recognitionWaiting } from './recognize-pdf.mjs';
 import { readParseCache, writeParseCache } from './parse-cache-store.mjs';
 // Runs before the Authorities workspace in the self-contained HTML. It starts the
-// runtime Worker and answers the requests the loopback server would: the runtime
-// API and the PDF.js standard fonts. Everything else goes to the network as usual.
+// runtime Worker, supplies the direct Authorities operation client and serves
+// PDF.js standard fonts. External requests still go to the network.
 /* global __AUTHORITIES_PAYLOAD__ */
 
-const API = "/api/authorities-runtime/";
 const FONTS = "/pdfjs-standard-fonts/";
 const payload = __AUTHORITIES_PAYLOAD__;
 globalThis.AUTHORITIES_ASSETS = payload.ocr;
@@ -48,15 +47,22 @@ globalThis.AUTHORITIES_PDF_DECODERS = () => decoders ??= Promise.all(Object.entr
 
 const pending = new Map();
 const recognition = new Map();
-let nextId = 0, failure = null, worker;
+let nextId = 0, failure = null;
 // The runtime is carried gzipped: it is inflated off the main thread, then started as its Worker.
-const ready = inflate(payload.runtime).blob().then((code) => new Promise((resolve, reject) => {
-  worker = new Worker(URL.createObjectURL(new Blob([code], { type: "text/javascript" })), { name: "authorities-runtime" });
+const runtimeCode = inflate(payload.runtime).blob();
+function startRuntime(name) {
+let worker;
+const ready = runtimeCode.then((code) => new Promise((resolve, reject) => {
+  const workerUrl = URL.createObjectURL(new Blob([code], { type: "text/javascript" }));
+  worker = new Worker(workerUrl, { name });
   const stop = (message) => {
     // Before start-up this rejects `ready`; afterwards it ends every open request.
+    URL.revokeObjectURL(workerUrl);
+    for (const controller of recognition.values()) controller.abort();
+    recognition.clear();
     failure = new Error(`Authorities stopped working: ${message}. Reload the page to continue.`);
     reject(failure);
-    for (const request of pending.values()) request.fail(failure);
+    for (const request of [...pending.values()]) request.fail(failure);
   };
   worker.onerror = (event) => stop(event.message);
   worker.onmessage = ({ data }) => {
@@ -96,65 +102,46 @@ const ready = inflate(payload.runtime).blob().then((code) => new Promise((resolv
       Promise.resolve(globalThis.AUTHORITIES_SOURCE_ANSWERS?.remember(data.url, data.body, data.expires)).catch(() => {});
       return;
     }
-    if (data.type === "ready") return resolve();
+    if (data.type === "ready") { URL.revokeObjectURL(workerUrl); return resolve(); }
     if (data.type === "failed") return stop(data.message);
     const request = pending.get(data.id);
     if (!request) return;
-    if (data.type === "head") request.head(data);
-    else if (data.type === "chunk") request.chunk(data.bytes);
-    else if (data.type === "end") request.end();
-    else if (data.type === "error") request.fail(new Error(data.message));
+    if (data.type === "progress") request.progress?.(data.message);
+    else if (data.type === "quote-progress") request.quoteProgress?.(data.value);
+    else if (data.type === "result") request.resolve(data.result);
+    else if (data.type === "error") request.fail(Object.assign(new Error(data.message), { status: data.status }));
   };
   worker.postMessage({ type: "init", engine: payload.engine });
 }));
 ready.catch(() => { /* each request reports it */ });
-
-/** The body as the Worker takes it. A FormData or string the caller built is passed as is,
- *  rather than re-encoded and parsed again on this thread; JSON is parsed in the Worker. */
-async function encodeBody(request, init) {
-  const type = request.headers.get("content-type") ?? "", supplied = init?.body;
-  if (supplied instanceof FormData) return { form: [...supplied] };
-  if (type.startsWith("multipart/form-data")) return { form: [...await request.formData()] };
-  const text = typeof supplied === "string" ? supplied : await request.text();
-  if (!text) return {};
-  return type.includes("json") ? { json: text } : { body: text };
+return { ready, post: (message, transfer) => worker.postMessage(message, transfer) };
 }
+const runtime = startRuntime("authorities-runtime");
+// The book's cover and index previews are drawn by a runtime of their own, started when the first is
+// asked for, so a preview never waits behind a brief being read.
+let previews;
+const runtimeFor = (operation) => operation === "book-front" ? previews ??= startRuntime("authorities-previews") : runtime;
 
-const aborted = () => new DOMException("The operation was aborted.", "AbortError");
-
-async function runtimeFetch(request, path, init) {
-  const { signal } = request;
-  if (signal.aborted) throw aborted();
+globalThis.AUTHORITIES_OPERATIONS = async (operation, input, { signal, progress, quoteProgress } = {}) => {
+  signal?.throwIfAborted();
+  const { ready, post } = runtimeFor(operation);
   await ready;
+  signal?.throwIfAborted();
   if (failure) throw failure;
-  const encoded = await encodeBody(request, init);
-  if (signal.aborted) throw aborted();
   const id = ++nextId;
   let built;
-  // A build is waited on: recognition it does not need waits until it is done.
-  if (path === `${API}build`) holdBackground(new Promise((resolve) => { built = resolve; }));
+  if (operation === "build") holdBackground(new Promise(resolve => { built = resolve; }));
   return new Promise((resolve, reject) => {
-    let controller;
-    const finish = () => { pending.delete(id); signal.removeEventListener("abort", onAbort); built?.(); };
-    const fail = (error) => {
-      finish(); reject(error);
-      try { controller.error(error); } catch { /* already closed */ }
-    };
-    const onAbort = () => { worker.postMessage({ type: "abort", id }); fail(aborted()); };
-    const body = new ReadableStream({ start: (value) => { controller = value; },
-      cancel: () => { worker.postMessage({ type: "abort", id }); finish(); } });
-    signal.addEventListener("abort", onAbort, { once: true });
-    pending.set(id, {
-      head: ({ status, headers }) => resolve(new Response(
-        [101, 204, 205, 304].includes(status) ? null : body, { status, headers })),
-      chunk: (bytes) => { try { controller.enqueue(bytes); } catch { /* reader cancelled */ } },
-      end: () => { finish(); try { controller.close(); } catch { /* reader cancelled */ } },
-      fail,
-    });
-    worker.postMessage({ type: "request", id, method: request.method, path,
-      headers: Object.fromEntries(request.headers), ...encoded });
+    const finish = () => { pending.delete(id); signal?.removeEventListener("abort", onAbort); built?.(); };
+    const onAbort = () => { post({ type: "abort", id }); finish(); reject(new DOMException("The operation was aborted.", "AbortError")); };
+    pending.set(id, { progress, quoteProgress,
+      resolve: result => { finish(); resolve(result); }, fail: error => { finish(); reject(error); } });
+    signal?.addEventListener("abort", onAbort, { once: true });
+    try {
+      post({ type: "operation", id, operation, input }, (input.files ?? []).map(file => file.bytes.buffer));
+    } catch (error) { pending.get(id)?.fail(error); }
   });
-}
+};
 
 /** The page-relative path the loopback server would see, or null for another site.
  *  From a Windows file the workspace's "/api/..." resolves to file:///C:/api/...:
@@ -169,11 +156,6 @@ const nativeFetch = globalThis.fetch.bind(globalThis);
 globalThis.fetch = async (input, init) => {
   const url = new URL(input instanceof Request ? input.url : String(input), location.href);
   const route = localRoute(url, location);
-  // A Request is only built for the runtime: building one reads the body of a Request input. A
-  // FormData or string body the Worker takes as it is is left out of it, as encoding it into the
-  // Request (the whole PDF, for a form) is wasted.
-  if (route?.startsWith(API)) return runtimeFetch(new Request(input,
-    init?.body instanceof FormData || typeof init?.body === "string" ? { ...init, body: undefined } : init), route, init);
   if (route?.startsWith(FONTS)) {
     const font = fonts.get(route.slice(FONTS.length));
     // The fonts are carried gzipped and inflated as PDF.js asks for each.

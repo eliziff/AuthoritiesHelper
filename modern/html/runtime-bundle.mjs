@@ -1,10 +1,10 @@
 // Bundles the Authorities runtime (Beaver's shared application code) for a browser Worker.
-// Node built-ins, Express, multer and undici resolve to this directory's browser adapters;
+// Node built-ins and undici resolve to this directory's browser adapters;
 // everything else is the same source the loopback package bundles.
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import path from "node:path";
-import { backendForbidden, localOnly } from "../scripts/authorities-package/bundle.mjs";
+import { backendForbidden, localOnly, sharedContractSource } from "../scripts/authorities-package/bundle.mjs";
 
 const here = import.meta.dirname, repo = path.resolve(here, "../../.."), backend = path.join(repo, "backend");
 const require = createRequire(import.meta.url);
@@ -17,9 +17,9 @@ const SUBSTITUTES = {
   diagnostics_channel: own("node/diagnostics-channel.mjs"),
   path: require.resolve("path-browserify"), stream: require.resolve("readable-stream"),
   util: require.resolve("util/"), events: require.resolve("events/"), buffer: require.resolve("buffer/"),
-  express: own("express.mjs"), multer: own("multer.mjs"), undici: own("undici.mjs"),
+  undici: own("undici.mjs"),
 };
-const backendRequired = ["src/routes/authoritiesRuntime.ts", "src/lib/authoritiesBuild.ts",
+const backendRequired = ["src/lib/authoritiesOperations.ts", "src/lib/authoritiesBuild.ts",
   "src/lib/structureNative.ts"];
 
 export const browserRuntime = {
@@ -42,7 +42,7 @@ export async function bundleRuntime({ plugins = [] } = {}) {
     absWorkingDir: backend, bundle: true, write: false,
     platform: "browser", format: "iife", target: "es2022", minify: true, legalComments: "none",
     mainFields: ["browser", "module", "main"], conditions: ["worker", "browser"],
-    inject: [own("node/globals.mjs")], plugins: [...plugins, localOnly, browserRuntime], logLevel: "warning",
+    inject: [own("node/globals.mjs")], plugins: [...plugins, sharedContractSource, localOnly, browserRuntime], logLevel: "warning",
   };
   // The Worker that parses PDFs beside the runtime, which starts it from this source.
   const parser = await build({ ...options, entryPoints: [own("parse-worker.mjs")],

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { cpSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, cpSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
@@ -76,6 +76,16 @@ export function writeThirdPartyNotices(stage, inputs, base, prefix) {
   writeFileSync(path.join(licenses, `${prefix}-licenses.txt`), `${notices.join("\n\n")}\n`);
 }
 
+// The runtime's contracts are TypeScript sources; a bundle reads them in place of their built copies.
+export const sharedContractSource = {
+  name: "shared-contract-source",
+  setup(build) {
+    build.onResolve({ filter: /shared\/runtime\/.*\.mjs$/ }, ({ path: input }) => {
+      const source = path.join(repo, "shared/contracts", path.basename(input).replace(/\.mjs$/, ".mts"));
+      return existsSync(source) ? { path: source } : null;
+    });
+  },
+};
 export const localOnly = {
   name: "authorities-local-only",
   setup(build) {
@@ -107,7 +117,7 @@ export async function bundleAuthorities(stage) {
   const result = await build({ absWorkingDir: backend, entryPoints: ["src/authoritiesStandalone.ts"],
     outfile: path.join(output, "authoritiesStandalone.js"), bundle: true, platform: "node",
     format: "cjs", target: "node22", minifySyntax: true, minifyWhitespace: true,
-    legalComments: "none", metafile: true, plugins: [localOnly] });
+    legalComments: "none", metafile: true, plugins: [sharedContractSource, localOnly] });
   assertAuthoritiesBundle(result.metafile);
   writeThirdPartyNotices(stage, Object.keys(result.metafile.inputs), backend, "npm");
 }

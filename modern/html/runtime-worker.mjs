@@ -1,18 +1,16 @@
-// The Authorities runtime in a Web Worker: the router the loopback server mounts
-// (backend/src/authoritiesStandaloneServer.ts), answered in the page instead of on 127.0.0.1.
-import EventEmitter from "events";
+// The shared Authorities application operations, called directly from the page worker.
 import { Buffer } from "buffer";
 import fs from "./node/fs.mjs";
 import { ENGINE_PATH, process } from "./node/globals.mjs";
 import { createWasi } from "./wasi.mjs";
 import { createStructureAddon, warmStructureAddon } from "./structure-addon.mjs";
 import { ApplicationError } from "../../../backend/src/lib/applicationError";
-import { createAuthoritiesRuntimeRouter } from "../../../backend/src/routes/authoritiesRuntime";
+import { createAuthoritiesOperations } from "../../../backend/src/lib/authoritiesOperations";
+import { sourcePageLabelsOperation } from "../../../backend/src/lib/authoritiesPageLabels";
 import { structureNative } from "../../../backend/src/lib/structureNative";
 import { pageAnswered } from "./source-pdf-cache.mjs";
 import { parseCacheAnswered, pdfParser } from "./pdf-parse-pool.mjs";
 
-const PREFIX = "/api/authorities-runtime";
 
 // structureNative() loads its engine through process.dlopen: here, the same crate compiled
 // for WASI, compiled once when the runtime starts.
@@ -57,98 +55,29 @@ async function loadEngine(base64) {
   fs.mkdirSync("/engine", { recursive: true });
   fs.writeFileSync(ENGINE_PATH, "");
 }
-const STANDALONE_USER = "00000000-0000-0000-0000-000000000001";
-let router;
+let operations;
 const active = new Map();
-
-function accepts(header, type) {
-  const accepted = String(header ?? "*/*").split(",").map((part) => part.split(";")[0].trim());
-  return accepted.some((value) => value === type || value === "*/*" ||
-    (value.endsWith("/*") && type.startsWith(value.slice(0, -1)))) ? type : false;
-}
-
-function createResponse(id) {
-  const response = new EventEmitter();
-  response.id = id;
-  const headers = {};
-  const post = (message, transfer) => self.postMessage({ id, ...message }, transfer ?? []);
-  const start = () => {
-    if (response.headersSent) return;
-    response.headersSent = true;
-    post({ type: "head", status: response.statusCode, headers });
-  };
-  const bytes = (chunk) => typeof chunk === "string" ? Buffer.from(chunk) : chunk;
-  Object.assign(response, {
-    statusCode: 200, headersSent: false, writableEnded: false, locals: {},
-    status(code) { response.statusCode = code; return response; },
-    setHeader(name, value) { headers[name.toLowerCase()] = String(value); return response; },
-    getHeader: (name) => headers[name.toLowerCase()],
-    set(name, value) { return response.setHeader(name, value); },
-    type(value) { return response.setHeader("content-type", value); },
-    flushHeaders: start,
-    write(chunk) {
-      start();
-      const view = bytes(chunk), out = Uint8Array.prototype.slice.call(view);
-      post({ type: "chunk", bytes: out }, [out.buffer]);
-      return true;
-    },
-    end(chunk) {
-      if (response.writableEnded) return response;
-      if (chunk !== undefined && chunk !== null) response.write(chunk); else start();
-      response.writableEnded = true;
-      post({ type: "end" });
-      active.delete(id);
-      response.emit("finish"); response.emit("close");
-      return response;
-    },
-    json(value) {
-      if (!headers["content-type"]) response.setHeader("content-type", "application/json; charset=utf-8");
-      return response.end(JSON.stringify(value));
-    },
-    send(value) {
-      return typeof value === "object" && !(value instanceof Uint8Array) ? response.json(value) : response.end(value);
-    },
-  });
-  return response;
-}
-
-// Mirrors the loopback server's error handler. A response already under way is broken
-// off, as the server destroys its socket, so the page does not read it as complete. A
-// defect is logged; a request the page itself abandoned is not one.
-function fail(response, error) {
-  if (response.headersSent) {
-    if (response.writableEnded) return;
-    if (!response.abandoned) console.error(error);
-    response.writableEnded = true; active.delete(response.id);
-    self.postMessage({ id: response.id, type: "error", message: "Authorities stopped part-way through this response." });
-    response.emit("close");
-    return;
-  }
-  const status = error instanceof ApplicationError ? error.status : 500;
-  if (status === 500 && !response.abandoned) console.error(error);
-  response.status(status).json({ detail: status === 500
-    ? "Authorities could not complete that operation" : error.message });
-}
-
-async function handle({ id, method, path, headers, body, json, form }) {
-  const response = createResponse(id);
-  active.set(id, response);
-  if (json !== undefined) {
-    try { body = JSON.parse(json); }
-    catch { return response.status(400).json({ detail: "The request body is not valid JSON." }); }
-  }
-  const request = {
-    method, path: path.slice(PREFIX.length) || "/", url: path, originalUrl: path, headers,
-    body: body === undefined ? {} : body, get: (name) => headers[name.toLowerCase()],
-    header: (name) => headers[name.toLowerCase()], accepts: (type) => accepts(headers.accept, type),
-  };
-  if (form) request.formParts = await Promise.all(form.map(async ([name, value]) =>
-    [name, typeof value === "string" ? value
-      : { name: value.name, type: value.type, bytes: new Uint8Array(await value.arrayBuffer()) }]));
-  router.handle(request, response, (error) => {
-    if (error) return fail(response, error);
-    if (!response.headersSent) response.status(404).json({ detail: "Not found" });
-  });
+async function handle({ id, operation, input }) {
+  const controller = new AbortController();
+  active.set(id, controller);
+  try {
+    const result = await operations[operation](input, { signal: controller.signal,
+      progress: message => self.postMessage({ type: "progress", id, message }),
+      quoteProgress: value => self.postMessage({ type: "quote-progress", id, value }) });
+    controller.signal.throwIfAborted();
+    // Each result owns its outgoing copies; moving them cannot detach cached native buffers.
+    const outgoing = { ...result, files: result.files?.map(file => ({ ...file, bytes: Uint8Array.from(file.bytes) })),
+      attachments: result.attachments?.map(file => ({ ...file, bytes: Uint8Array.from(file.bytes) })) };
+    self.postMessage({ type: "result", id, result: outgoing },
+      [...outgoing.files ?? [], ...outgoing.attachments ?? []].map(file => file.bytes.buffer));
+  } catch (error) {
+    if (!controller.signal.aborted) {
+      const status = error instanceof ApplicationError ? error.status : 500;
+      if (status === 500) console.error(error);
+      self.postMessage({ type: "error", id, status, message: status === 500
+        ? "Authorities could not complete that operation" : error.message });
+    }
+  } finally { active.delete(id); }
 }
 
 self.onmessage = async ({ data }) => {
@@ -163,9 +92,7 @@ self.onmessage = async ({ data }) => {
   } else if (data.type === "init") {
     try {
       await loadEngine(data.engine);
-      router = createAuthoritiesRuntimeRouter((_request, response, next) => {
-        response.locals.userId = STANDALONE_USER; next();
-      });
+      operations = { ...createAuthoritiesOperations(), "source-page-labels": sourcePageLabelsOperation };
     } catch (error) {
       // A rejected handler does not reach the page's onerror; say so, or every request waits.
       self.postMessage({ type: "failed", message: error instanceof Error ? error.message : String(error) });
@@ -177,10 +104,9 @@ self.onmessage = async ({ data }) => {
     pdfParser.warm().then(() => {
       try { warmStructureAddon(structureNative()); } catch (error) { console.error(error); }
     });
-  } else if (data.type === "request") {
-    handle(data).catch((error) => fail(active.get(data.id) ?? createResponse(data.id), error));
+  } else if (data.type === "operation") {
+    void handle(data);
   } else if (data.type === "abort") {
-    const response = active.get(data.id);
-    if (response) { response.abandoned = true; response.emit("close"); }
+    active.get(data.id)?.abort();
   }
 };
