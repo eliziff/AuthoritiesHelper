@@ -82,7 +82,8 @@ if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) 
   const target = process.argv.slice(2).find((value) => !value.startsWith("--"));
   const output = path.resolve(target ?? path.join(modern, "out/ALR Quote Verifier.html"));
   const started = Date.now();
-  const { bytes, runtimeModules } = await buildAlrHtml(output, { release: process.argv.includes("--release") });
+  const release = process.argv.includes("--release");
+  const { bytes, runtimeModules } = await buildAlrHtml(output, { release });
   console.log(`Built ${output} (${bytes} bytes, ${runtimeModules} runtime modules, ${((Date.now() - started) / 1000).toFixed(1)} s)`);
   // Every public page is checked: no private journal text, private-program names or API keys.
   const { buildAlrExe, checkPublicHtml } = await import("./exe/build.mjs");
@@ -91,7 +92,7 @@ if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) 
   if (process.argv.includes("--all")) {
     const { buildViewer } = await import("./viewer/build.mjs");
     console.log("Built the viewer:", await buildViewer({ outDir: path.dirname(output) }));
-    const { exe, bytes: exeBytes } = await buildAlrExe({ publicHtml: output, outDir: path.dirname(output) });
+    const { exe, bytes: exeBytes } = await buildAlrExe({ publicHtml: output, outDir: path.dirname(output), release });
     console.log(`Built ${exe} (${(exeBytes / 1e9).toFixed(2)} GB)`);
   }
 }
