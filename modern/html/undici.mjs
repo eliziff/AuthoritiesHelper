@@ -13,8 +13,12 @@ const DIRECT_HOSTS = new Set(["api.a2aj.ca"]);
 // statute's page is read for its title, while its PDF still comes through the service.
 const directPage = (url) => url.hostname === "laws-lois.justice.gc.ca" && /^\/eng\/AnnualStatutes\/\d{4}_\d{1,3}\/$/u.test(url.pathname);
 // The page keeps A2AJ's answers for a day, as long as the runtime's own cache does, so a visit
-// after a reload does not ask A2AJ again. A lookup that failed is asked again.
+// after a reload does not ask A2AJ again; a decision A2AJ sent for its citation, which does not
+// change, for a month. A lookup that failed is asked again.
 const ANSWER_TTL_MS = 24 * 60 * 60_000;
+const DECISION_TTL_MS = 30 * ANSWER_TTL_MS;
+const answerLifetime = (url) => url.pathname === "/fetch" && url.searchParams.get("doc_type") === "cases"
+  && !url.searchParams.has("section") ? DECISION_TTL_MS : ANSWER_TTL_MS;
 
 async function directAnswer(url, init) {
   const read = (init.method ?? "GET").toUpperCase() === "GET";
@@ -23,7 +27,8 @@ async function directAnswer(url, init) {
   const response = await globalThis.fetch(url, init);
   if (!read || !response.ok || !/json/u.test(response.headers.get("content-type") ?? "")) return response;
   const body = await response.text();
-  keepAnswer(url.href, body, Date.now() + ANSWER_TTL_MS);
+  // An empty answer (the decision is not in A2AJ yet) is kept only a day.
+  keepAnswer(url.href, body, Date.now() + (/"results"\s*:\s*\[\s*\]/u.test(body) ? ANSWER_TTL_MS : answerLifetime(url)));
   return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
 }
 const PUBLISHER_HOSTS = new Set([...DECISIA_HOSTS, "www.bccourts.ca", "bccourts.ca", ...LEGISLATION_PDF_HOSTS]);
