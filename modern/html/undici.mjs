@@ -9,6 +9,9 @@ import { DEFAULT_SERVICE_URL } from "../provider-pdf-service.mjs";
 import { keepAnswer, keepPdf, keptAnswer, keptPdf } from "./source-pdf-cache.mjs";
 
 const DIRECT_HOSTS = new Set(["api.a2aj.ca"]);
+// Justice Laws serves its pages to browsers directly too (Access-Control-Allow-Origin: *): an annual
+// statute's page is read for its title, while its PDF still comes through the service.
+const directPage = (url) => url.hostname === "laws-lois.justice.gc.ca" && /^\/eng\/AnnualStatutes\/\d{4}_\d{1,3}\/$/u.test(url.pathname);
 // The page keeps A2AJ's answers for a day, as long as the runtime's own cache does, so a visit
 // after a reload does not ask A2AJ again. A lookup that failed is asked again.
 const ANSWER_TTL_MS = 24 * 60 * 60_000;
@@ -66,6 +69,8 @@ export async function fetch(input, init = {}) {
     return directAnswer(url, { ...rest, credentials: "omit", referrerPolicy: "no-referrer",
       redirect: redirect === "manual" ? "follow" : redirect });
   }
+  if (directPage(url)) return globalThis.fetch(url, { ...rest, credentials: "omit", referrerPolicy: "no-referrer",
+    redirect: redirect === "manual" ? "follow" : redirect });
   if (PUBLISHER_HOSTS.has(url.hostname)) return publisherPdf(url, rest);
   throw new Error(`${url.hostname} cannot be reached from this page. Attach the PDF instead.`);
 }
