@@ -47,7 +47,13 @@ process.dlopen = (module, filename) => {
 };
 
 async function loadEngine(base64) {
-  const gzipped = Uint8Array.from(atob(base64), (character) => character.charCodeAt(0));
+  // Uint8Array.fromBase64 decodes the engine in milliseconds; Uint8Array.from with a callback per
+  // character took a second.
+  const gzipped = Uint8Array.fromBase64?.(base64) ?? (() => {
+    const text = atob(base64), bytes = new Uint8Array(text.length);
+    for (let index = 0; index < text.length; index++) bytes[index] = text.charCodeAt(index);
+    return bytes;
+  })();
   const stream = new Blob([gzipped]).stream().pipeThrough(new DecompressionStream("gzip"));
   engineModule = await WebAssembly.compile(await new Response(stream).arrayBuffer());
   pdfParser.start(engineModule);
@@ -101,7 +107,8 @@ self.onmessage = async ({ data }) => {
     self.postMessage({ type: "ready" });
     // Ready the engine and a PDF parser now, while the user chooses a file, not during their first import.
     // The parser starts first: its Worker cannot receive the engine while this thread is busy.
-    pdfParser.warm().then(() => {
+    // The previews' runtime draws covers and indexes and parses no PDF: it readies no parser.
+    (self.name === "authorities-previews" ? Promise.resolve() : pdfParser.warm()).then(() => {
       try { warmStructureAddon(structureNative()); } catch (error) { console.error(error); }
     });
   } else if (data.type === "operation") {
