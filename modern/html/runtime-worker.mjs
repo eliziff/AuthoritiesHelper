@@ -6,7 +6,6 @@ import { createWasi } from "./wasi.mjs";
 import { createStructureAddon, warmStructureAddon } from "./structure-addon.mjs";
 import { ApplicationError } from "../../../backend/src/lib/applicationError";
 import { createAuthoritiesOperations } from "../../../backend/src/lib/authoritiesOperations";
-import { sourcePageLabelsOperation } from "../../../backend/src/lib/authoritiesPageLabels";
 import { structureNative } from "../../../backend/src/lib/structureNative";
 import { pageAnswered } from "./source-pdf-cache.mjs";
 import { parseCacheAnswered, pdfParser } from "./pdf-parse-pool.mjs";
@@ -98,7 +97,7 @@ self.onmessage = async ({ data }) => {
   } else if (data.type === "init") {
     try {
       await loadEngine(data.engine);
-      operations = { ...createAuthoritiesOperations(), "source-page-labels": sourcePageLabelsOperation };
+      operations = createAuthoritiesOperations();
     } catch (error) {
       // A rejected handler does not reach the page's onerror; say so, or every request waits.
       self.postMessage({ type: "failed", message: error instanceof Error ? error.message : String(error) });
