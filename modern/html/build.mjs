@@ -56,9 +56,12 @@ async function buildFrontend(release, entry) {
       configResolved(resolved) { config = resolved; },
       generateBundle() { watch = this.getWatchFiles?.() ?? []; },
     }, {name:'browser-pdf-text',enforce:'pre',
-      resolveId(source) {
-        // Another app built on this page (ALR) starts from its own entry.
+      resolveId(source, importer) {
+        // Another app built on this page (ALR) starts from its own entry, which may live outside this
+        // checkout: its packages are the frontend's.
         if (entry && /[\\/]authoritiesMain\.tsx$/u.test(source)) return entry;
+        if (entry && importer && /^[@\w]/u.test(source) && !source.startsWith('@/') &&
+            !path.resolve(importer).startsWith(repo)) return this.resolve(source, path.join(frontend, 'src/authoritiesMain.tsx'), { skipSelf: true });
         if(source === './standalonePdfText') return path.join(here,'standalone-pdf-text.mjs');
         // The viewer's PDF.js worker comes from the page bridge, gzipped, not inlined as a data: URL.
         if(source === './pdfWorkerUrl') return path.join(here,'standalone-pdf-worker.mjs');
