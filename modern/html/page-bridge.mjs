@@ -161,8 +161,11 @@ const nativeFetch = globalThis.fetch.bind(globalThis);
 globalThis.fetch = async (input, init) => {
   const url = new URL(input instanceof Request ? input.url : String(input), location.href);
   const route = localRoute(url, location);
-  // A Request is only built for the runtime: building one reads the body of a Request input.
-  if (route?.startsWith(API)) return runtimeFetch(new Request(input, init), route, init);
+  // A Request is only built for the runtime: building one reads the body of a Request input. A
+  // FormData or string body the Worker takes as it is is left out of it, as encoding it into the
+  // Request (the whole PDF, for a form) is wasted.
+  if (route?.startsWith(API)) return runtimeFetch(new Request(input,
+    init?.body instanceof FormData || typeof init?.body === "string" ? { ...init, body: undefined } : init), route, init);
   if (route?.startsWith(FONTS)) {
     const font = fonts.get(route.slice(FONTS.length));
     // The fonts are carried gzipped and inflated as PDF.js asks for each.
