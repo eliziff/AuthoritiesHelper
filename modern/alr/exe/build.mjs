@@ -15,6 +15,7 @@ import { DatabaseSync } from "node:sqlite";
 import { pathToFileURL } from "node:url";
 import { brotliDecompressSync, gunzipSync, inflateSync } from "node:zlib";
 import { localOnly, sharedContractSource, writeThirdPartyNotices } from "../../scripts/authorities-package/bundle.mjs";
+import { defaultNativeAddon } from "../../../../shared/nativeAddonFile.mjs";
 import { appendOverlay } from "./overlay.mjs";
 
 const here = import.meta.dirname, modern = path.resolve(here, "../.."), repo = path.resolve(modern, "../..");
@@ -90,6 +91,17 @@ async function bundleProgram(file, plugins) {
   return inputs;
 }
 
+/** The engine Beaver itself would load (its latest build); a release program only the optimized one,
+ *  never older than the latest build. */
+function nativeEngine(release) {
+  const crate = path.join(repo, "native/legal-structure-node");
+  const latest = defaultNativeAddon(crate), optimized = path.join(crate, "target/release/legal_structure_node.dll");
+  if (!release) return latest;
+  if (latest !== optimized) throw new Error("The optimized engine is older than the engine's latest build. " +
+    "Run npm run native:build -- --release first.");
+  return optimized;
+}
+
 /** The public page with its Worker runtime replaced by the client of this program's operations. */
 async function programPage(publicHtml) {
   const { build } = createRequire(path.join(modern, "package.json"))("esbuild");
@@ -105,10 +117,9 @@ async function programPage(publicHtml) {
 }
 
 /** Builds the private executable from the public page at `publicHtml`; returns its path and size. */
-export async function buildAlrExe({ publicHtml, outDir = path.join(modern, "out"), plugins = [] } = {}) {
+export async function buildAlrExe({ publicHtml, outDir = path.join(modern, "out"), plugins = [], release = false } = {}) {
   const started = Date.now();
-  const engine = path.join(repo, "native/legal-structure-node/target/release/legal_structure_node.dll");
-  if (!existsSync(engine)) throw new Error(`The native engine is missing: ${engine}. Run npm run native:build -- --release.`);
+  const engine = nativeEngine(release);
   const { database, index } = journalData();
   const stage = mkdtempSync(path.join(tmpdir(), "alr-exe-"));
   try {
@@ -242,8 +253,9 @@ export function checkPublicHtml(publicHtml) {
 }
 
 if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
-  const publicHtml = path.resolve(process.argv[2] ?? path.join(modern, "out/ALR Quote Verifier.html"));
+  const target = process.argv.slice(2).find((value) => !value.startsWith("--"));
+  const publicHtml = path.resolve(target ?? path.join(modern, "out/ALR Quote Verifier.html"));
   console.log("Public page check:", checkPublicHtml(publicHtml));
-  const { exe, bytes, seconds } = await buildAlrExe({ publicHtml });
+  const { exe, bytes, seconds } = await buildAlrExe({ publicHtml, release: process.argv.includes("--release") });
   console.log(`Built ${exe} (${(bytes / 1e9).toFixed(2)} GB, ${seconds.toFixed(1)} s)`);
 }
