@@ -20,6 +20,7 @@
     "events": "3.3.0",
     "memfs": "4.79.0",
     "path-browserify": "1.0.1",
+    "postject": "1.0.0-alpha.6",
     "readable-stream": "4.7.0",
     "tailwindcss": "4.1.14",
     "util": "0.12.5"
