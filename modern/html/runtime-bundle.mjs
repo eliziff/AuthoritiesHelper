@@ -35,13 +35,14 @@ export const browserRuntime = {
   },
 };
 
-export async function bundleRuntime() {
+// `plugins` run first: a product built on this runtime (ALR) supplies its own operations through them.
+export async function bundleRuntime({ plugins = [] } = {}) {
   const { build } = createRequire(path.join(backend, "package.json"))("esbuild");
   const options = {
     absWorkingDir: backend, bundle: true, write: false,
     platform: "browser", format: "iife", target: "es2022", minify: true, legalComments: "none",
     mainFields: ["browser", "module", "main"], conditions: ["worker", "browser"],
-    inject: [own("node/globals.mjs")], plugins: [localOnly, browserRuntime], logLevel: "warning",
+    inject: [own("node/globals.mjs")], plugins: [...plugins, localOnly, browserRuntime], logLevel: "warning",
   };
   // The Worker that parses PDFs beside the runtime, which starts it from this source.
   const parser = await build({ ...options, entryPoints: [own("parse-worker.mjs")],
