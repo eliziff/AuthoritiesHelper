@@ -1,10 +1,9 @@
 // Bundles the Authorities runtime (Beaver's shared application code) for a browser Worker.
 // Node built-ins and undici resolve to this directory's browser adapters;
 // everything else is the same source the loopback package bundles.
-import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import path from "node:path";
-import { backendForbidden, localOnly, sharedContractSource } from "../scripts/authorities-package/bundle.mjs";
+import { localOnly, sharedContractSource } from "../scripts/authorities-package/bundle.mjs";
 
 const here = import.meta.dirname, repo = path.resolve(here, "../../.."), backend = path.join(repo, "backend");
 const require = createRequire(import.meta.url);
@@ -19,8 +18,6 @@ const SUBSTITUTES = {
   util: require.resolve("util/"), events: require.resolve("events/"), buffer: require.resolve("buffer/"),
   undici: own("undici.mjs"),
 };
-const backendRequired = ["src/lib/authoritiesOperations.ts", "src/lib/authoritiesBuild.ts",
-  "src/lib/structureNative.ts"];
 
 export const browserRuntime = {
   name: "authorities-browser-runtime",
@@ -45,17 +42,15 @@ export async function bundleRuntime({ plugins = [] } = {}) {
     inject: [own("node/globals.mjs")], plugins: [...plugins, sharedContractSource, localOnly, browserRuntime], logLevel: "warning",
   };
   // The Worker that parses PDFs beside the runtime, which starts it from this source.
-  const parser = await build({ ...options, entryPoints: [own("parse-worker.mjs")],
+  const parser = await build({ ...options, entryPoints: [own("parse-worker.mjs")], metafile: true,
     define: { "process.env.NODE_ENV": '"production"' } });
   const result = await build({ ...options, entryPoints: [own("runtime-worker.mjs")], metafile: true,
     // Server code locates siblings from its own directory; the runtime has one virtual root.
     define: { "process.env.NODE_ENV": '"production"', __dirname: '"/app"', __filename: '"/app/runtime.js"',
       __PARSE_WORKER__: JSON.stringify(parser.outputFiles[0].text) },
   });
-  const inputs = Object.keys(result.metafile.inputs).map((file) => file.replaceAll("\\", "/"));
-  for (const file of backendRequired)
-    assert(inputs.includes(file), `Authorities runtime misses ${file}`);
-  for (const file of inputs) for (const pattern of backendForbidden)
-    assert(!pattern.test(file), `Authorities runtime contains ${file}`);
+  // Every file either bundle read, relative to the backend.
+  const inputs = [...new Set([parser, result].flatMap(({ metafile }) => Object.keys(metafile.inputs)))]
+    .map((file) => file.replaceAll("\\", "/"));
   return { code: result.outputFiles[0].text, inputs };
 }

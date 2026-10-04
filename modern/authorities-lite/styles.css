@@ -2,7 +2,7 @@
 @source "./app.jsx";
 @source "./index.html";
 @source "./viewer.mjs";
-@source "../vendor/beaver/frontend/src/app/components/shared/views/PdfPageNavigation.tsx";
+@source "../../../frontend/src/app/components/shared/views/PdfPageNavigation.tsx";
 
 /* Beaver design tokens (frontend/src/app/base.css). */
 @theme inline {

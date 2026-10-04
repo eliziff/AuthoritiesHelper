@@ -2,7 +2,7 @@ import { citationCall, extractCitations } from './engine.mjs';
 import { key } from './domain.mjs';
 import { acquirePdf, readBounded, LIMITS } from './network.mjs';
 import { textAsset } from './assets.mjs';
-import { hasPdfEndMarker } from '../vendor/beaver/shared/pdf-integrity.mjs';
+import { hasPdfEndMarker } from '../../../shared/pdf-integrity.mjs';
 export { DEFAULT_SERVICE_URL } from '../provider-pdf-service.mjs';
 let aliases;
 export function aliasTarget(citation, engine) {

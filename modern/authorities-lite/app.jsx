@@ -4,8 +4,8 @@ import {createEngine,caller} from './engine.mjs';import {bytes} from './assets.m
 import {parseInstructions,key,targetLabel,canliiFileCitation,captionStyleOfCause} from './domain.mjs';
 import {canliiPdf,resolveRecord,retrievePdf,download,makeZip,DEFAULT_SERVICE_URL} from './client.mjs';
 import {inspectPdf,inspectOpening,attachFindings,exportPdf} from './pdf.mjs';import {makeViewer} from './viewer.mjs';
-import {canliiFiles,headerIdentities,headerText,matchFolderPdf} from './folder.mjs';import {publisherOpenUrl} from './publisher.mjs';
-import {PdfPageNavigation} from '../vendor/beaver/frontend/src/app/components/shared/views/PdfPageNavigation.tsx';
+import {canliiFiles,headerIdentities,headerText,matchFolderPdf} from '../../../shared/folder-pdf-match.mjs';import {publisherOpenUrl} from '../../../backend/src/lib/legalSourcePresentation.ts';
+import {PdfPageNavigation} from '../../../frontend/src/app/components/shared/views/PdfPageNavigation.tsx';
 
 // Application state lives outside React so long-running work mutates it directly; emit() re-renders.
 const records=[],listeners=new Set();let version=0,engine,call,busy=false,controller,activeRecord,working=null,message='Loading the local parser…',paste='';

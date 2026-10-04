@@ -1,6 +1,6 @@
 // MIT. Publisher representation discovery is reused from Beaver.
-import { DECISIA_HOSTS, legislationPdfUrl, publisherChallengeUrl, publisherPdfCandidate, verifiedDecisiaPdf, rankedPublisherPdfLinks } from './publisher.mjs';
-export { DECISIA_HOSTS, LEGISLATION_PDF_HOSTS } from './publisher.mjs';
+import { DECISIA_HOSTS, legislationPdfUrl, publisherChallengeUrl, publisherPdfCandidate, verifiedDecisiaPdf, rankedPublisherPdfLinks } from '../../../backend/src/lib/legalSourcePresentation.ts';
+export { DECISIA_HOSTS, LEGISLATION_PDF_HOSTS } from '../../../backend/src/lib/legalSourcePresentation.ts';
 export const LIMITS = { html: 2_000_000, pdf: 100 * 1024 * 1024, hops: 5, milliseconds: 60_000 };
 export class SourceError extends Error {
   constructor(message, status = 502, code = 'publisher_error', verificationUrl = null) { super(message); this.status = status; this.code = code; this.verificationUrl = verificationUrl; }

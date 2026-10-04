@@ -1,6 +1,6 @@
 // Adapter only: inference, layout, line ordering and PDF text geometry reuse Legal Browser OCR.
-import { orderLayoutLines } from '../vendor/ocr-source/layout-order.js';
-import { positionedLines } from '../vendor/ocr-source/text-layer.js';
+import { orderLayoutLines } from '../../../legal-browser-ocr/layout-order.js';
+import { positionedLines } from '../../../legal-browser-ocr/text-layer.js';
 import { assetsReady, bytes, assetURL, textAsset } from './assets.mjs';
 
 // Each recognizer reads one page at a time on its own workers, so pages are read side by side by
@@ -10,7 +10,7 @@ const idle = [];
 let created = 0, codec;
 class QualityOCR {
   constructor() {
-    // The layout worker, driven as vendor/ocr-source/tesseract-layout.js drives it, but sent pixels
+    // The layout worker, driven as legal-browser-ocr/tesseract-layout.js drives it, but sent pixels
     // a worker drew and read rather than reading them from a canvas on this thread.
     this.layout = new Worker(assetURL('layoutWorker'));
     this.worker = new Worker(assetURL('recognitionWorker'));

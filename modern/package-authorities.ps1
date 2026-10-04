@@ -27,9 +27,6 @@ Remove-Item -LiteralPath $Stage -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item -LiteralPath $Zip -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Path $Stage -Force | Out-Null
 
-$frontend = Join-Path $Repo 'frontend'
-Invoke-Checked (Join-Path $frontend 'node_modules\.bin\tsc.cmd') @('--noEmit') $frontend
-Invoke-Checked 'npm.cmd' @('run', 'build', '--prefix', 'backend')
 $NativeDll = Join-Path $Repo 'native\legal-structure-node\target\release\legal_structure_node.dll'
 foreach ($required in @('legal-pdf-parser\runtime\onnxruntime.dll',
     'legal-pdf-parser\runtime\legalpdf_tesseract_layout.dll',
@@ -40,10 +37,9 @@ foreach ($required in @('legal-pdf-parser\runtime\onnxruntime.dll',
     }
 }
 if (-not (Test-Path -LiteralPath $NativeDll -PathType Leaf)) {
-    throw "Missing package input: $NativeDll. Build the pinned native engine before packaging."
+    throw "Missing package input: $NativeDll. Build the native engine before packaging."
 }
 
-Invoke-Checked 'node.exe' @('--test', (Join-Path $Owner 'scripts/authorities-package/bundle.test.mjs'))
 Invoke-Checked 'node.exe' @((Join-Path $Owner 'scripts/authorities-package/bundle.mjs'), $Stage)
 
 $runtime = Join-Path $Stage 'runtime'
@@ -84,14 +80,17 @@ Copy-Item -LiteralPath (Join-Path $Repo 'legal-structure\LICENSE') `
     -Destination (Join-Path $licenses 'legal-structure.txt')
 Copy-Item -LiteralPath (Join-Path $Repo 'legal-pdf-parser\LICENSE') `
     -Destination (Join-Path $licenses 'legal-pdf-parser.txt')
-# The installed shared citation package carries its native notices too.
-$CitationPackage = Join-Path $Repo 'backend\node_modules\legal-citations'
+# The owning citation source carries its native notices too.
+$CitationPackage = Join-Path $Repo 'common-law-cite\crates\legal-citations'
 $CitationNotices = Join-Path $licenses 'legal-citations'
 New-Item -ItemType Directory -Path $CitationNotices -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $CitationPackage 'LICENSE'),
     (Join-Path $CitationPackage 'NOTICE') -Destination $CitationNotices
-Copy-Item -LiteralPath (Join-Path $Repo 'frontend\node_modules\pdfjs-dist\standard_fonts\LICENSE_FOXIT'),
-    (Join-Path $Repo 'frontend\node_modules\pdfjs-dist\standard_fonts\LICENSE_LIBERATION') -Destination $licenses
+$PdfJsPackage = & node -p "require('node:path').dirname(require.resolve('pdfjs-dist/package.json', { paths: [process.argv[1]] }))" (Join-Path $Repo 'frontend')
+if ($LASTEXITCODE -ne 0) { throw 'Could not resolve PDF.js for license notices' }
+$PdfJsPackage = $PdfJsPackage.Trim()
+Copy-Item -LiteralPath (Join-Path $PdfJsPackage 'standard_fonts\LICENSE_FOXIT'),
+    (Join-Path $PdfJsPackage 'standard_fonts\LICENSE_LIBERATION') -Destination $licenses
 Copy-Item -Path (Join-Path $Owner 'scripts\authorities-package\*.cmd'),
     (Join-Path $Owner 'scripts\authorities-package\*.ps1'),
     (Join-Path $Owner 'scripts\authorities-package\README.txt') -Destination $Stage

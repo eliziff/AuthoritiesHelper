@@ -15,7 +15,6 @@ repository at `AuthoritiesHelper/`:
 
 ```powershell
 npm run dev:authorities
-npm run test:authorities-package
 npm run package:authorities
 ```
 

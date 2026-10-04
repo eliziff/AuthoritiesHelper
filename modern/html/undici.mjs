@@ -3,7 +3,7 @@
 // PDFs come from the Cloudflare Worker Authorities-lite uses, which returns the
 // publisher's own PDF for a decision page or PDF URL. No other source is reachable from
 // the page; its PDF is attached instead.
-import { DECISIA_HOSTS, LEGISLATION_PDF_HOSTS } from "../authorities-lite/publisher.mjs";
+import { DECISIA_HOSTS, LEGISLATION_PDF_HOSTS } from "../../../backend/src/lib/legalSourcePresentation.ts";
 
 import { DEFAULT_SERVICE_URL } from "../provider-pdf-service.mjs";
 import { keepAnswer, keepPdf, keptAnswer, keptPdf } from "./source-pdf-cache.mjs";

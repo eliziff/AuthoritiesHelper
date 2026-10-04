@@ -1,7 +1,7 @@
 // MIT. Citation recognition and structural boundaries belong to the shared Rust engine.
 import { citationCall, extractCitations } from './engine.mjs';
-import { resolvePrintedPages } from '../vendor/beaver/shared/pdf-page-binding.mjs';
-import { CANLII_PDF_NAME } from './folder.mjs';
+import { resolvePrintedPages } from '../../../shared/pdf-page-binding.mjs';
+import { CANLII_PDF_NAME } from '../../../shared/folder-pdf-match.mjs';
 export const key = (text, engine) => citationCall(engine, 'keyForText', { text: String(text || '') }).key;
 /** The style of cause a decision prints before its own citation, as a CanLII PDF opens: "Citation: Pell v
  *  Marlow Holdings, 2030 ABKB 12" gives "Pell v Marlow Holdings". A caption that is not a plain "Name, citation" (a label such as "Neutral

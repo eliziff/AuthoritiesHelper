@@ -1,0 +1,135 @@
+// node:sqlite for the browser runtime: a read-only DatabaseSync over a file the user picked. SQLite's
+// official WebAssembly build reads it through a VFS whose reads are File.slice() calls answered at once
+// (FileReaderSync, which Workers have), so a database of any size is read in place, never copied.
+// mountFile() names the file by the path Beaver's code opens; the path exists in the runtime's
+// filesystem as an empty placeholder, so existsSync and statSync see it.
+import sqlite3InitModule from "@sqlite.org/sqlite-wasm";
+import wasmBinary from "@sqlite.org/sqlite-wasm/sqlite3.wasm";
+import path from "path";
+import fs from "./fs.mjs";
+
+const VFS = "picked-file";
+// Reads go to the file in blocks this large, the most recent kept: a lookup's B-tree pages and a
+// document's overflow pages sit near each other.
+const BLOCK = 64 * 1024, BLOCKS = 512;
+const files = new Map(); // path -> Blob
+const open = new Map(); // sqlite3_file pointer -> { blob, blocks }
+let sqlite3 = null;
+
+/** Resolves once SQLite is compiled; DatabaseSync needs it. */
+export const ready = sqlite3InitModule({ wasmBinary, print: () => {}, printErr: () => {} })
+  .then((module) => { sqlite3 = module; installVfs(module); });
+
+/** Makes `file` the database at `filename`; null forgets it. */
+export function mountFile(filename, file) {
+  if (!file) { files.delete(filename); fs.rmSync(filename, { force: true }); return; }
+  files.set(filename, file);
+  fs.mkdirSync(path.dirname(filename), { recursive: true });
+  fs.writeFileSync(filename, "");
+}
+
+function readBlock(entry, index) {
+  let block = entry.blocks.get(index);
+  if (block) { entry.blocks.delete(index); entry.blocks.set(index, block); return block; }
+  block = new Uint8Array(new FileReaderSync().readAsArrayBuffer(entry.blob.slice(index * BLOCK, (index + 1) * BLOCK)));
+  entry.blocks.set(index, block);
+  if (entry.blocks.size > BLOCKS) entry.blocks.delete(entry.blocks.keys().next().value);
+  return block;
+}
+
+function installVfs({ capi, wasm, vfs }) {
+  const io = new capi.sqlite3_io_methods();
+  io.$iVersion = 1;
+  vfs.installVfs({ io: { struct: io, methods: {
+    xClose: (pFile) => { open.delete(Number(pFile)); return 0; },
+    xRead(pFile, pDest, n, offset64) {
+      const entry = open.get(Number(pFile)), start = Number(offset64), heap = wasm.heap8u(), dest = Number(pDest);
+      try {
+        let done = 0;
+        while (done < n) {
+          const at = start + done, block = readBlock(entry, Math.floor(at / BLOCK));
+          const from = at % BLOCK, count = Math.min(n - done, block.length - from);
+          if (count <= 0) break;
+          heap.set(block.subarray(from, from + count), dest + done);
+          done += count;
+        }
+        // A WAL database whose log is checkpointed reads as a rollback-journal one: there is no log to
+        // read and nothing writes, so SQLite needs no shared memory for it.
+        if (start <= 18 && start + done > 19 && heap[dest + 18 - start] === 2) heap[dest + 18 - start] = heap[dest + 19 - start] = 1;
+        if (done < n) { heap.fill(0, dest + done, dest + n); return capi.SQLITE_IOERR_SHORT_READ; }
+        return 0;
+      } catch { return capi.SQLITE_IOERR_READ; }
+    },
+    xWrite: () => capi.SQLITE_READONLY,
+    xTruncate: () => capi.SQLITE_READONLY,
+    xSync: () => 0,
+    xFileSize: (pFile, pSize) => { wasm.poke64(pSize, BigInt(open.get(Number(pFile)).blob.size)); return 0; },
+    xLock: () => 0,
+    xUnlock: () => 0,
+    xCheckReservedLock: (pFile, pOut) => { wasm.poke32(pOut, 0); return 0; },
+    xFileControl: () => capi.SQLITE_NOTFOUND,
+    xSectorSize: () => 4096,
+    xDeviceCharacteristics: () => capi.SQLITE_IOCAP_IMMUTABLE,
+  } } });
+  const struct = new capi.sqlite3_vfs(), fallback = new capi.sqlite3_vfs(capi.sqlite3_vfs_find(null));
+  struct.$iVersion = 1;
+  struct.$szOsFile = capi.sqlite3_file.structInfo.sizeof;
+  struct.$mxPathname = 1024;
+  struct.$xRandomness = fallback.$xRandomness;
+  struct.$xSleep = fallback.$xSleep;
+  fallback.dispose();
+  vfs.installVfs({ vfs: { struct, name: VFS, methods: {
+    xOpen(pVfs, zName, pFile, flags, pOutFlags) {
+      const blob = zName ? files.get(wasm.cstrToJs(zName)) : null;
+      if (!blob) return capi.SQLITE_CANTOPEN;
+      open.set(Number(pFile), { blob, blocks: new Map() });
+      const file = new capi.sqlite3_file(pFile);
+      file.$pMethods = io.pointer;
+      file.dispose();
+      wasm.poke32(pOutFlags, capi.SQLITE_OPEN_READONLY);
+      return 0;
+    },
+    xDelete: () => capi.SQLITE_IOERR_DELETE,
+    xAccess: (pVfs, zName, flags, pOut) => { wasm.poke32(pOut, files.has(wasm.cstrToJs(zName)) ? 1 : 0); return 0; },
+    xFullPathname: (pVfs, zName, nOut, pOut) => wasm.cstrncpy(pOut, zName, nOut) < nOut ? 0 : capi.SQLITE_CANTOPEN,
+    xCurrentTime: (pVfs, pOut) => { wasm.poke(pOut, 2440587.5 + Date.now() / 864e5, "double"); return 0; },
+    xCurrentTimeInt64: (pVfs, pOut) => { wasm.poke(pOut, 210866760000000n + BigInt(Date.now()), "i64"); return 0; },
+    xGetLastError: () => 0,
+  } } });
+}
+
+class StatementSync {
+  constructor(statement) { this.statement = statement; }
+  #rows(parameters, limit) {
+    const { statement } = this, rows = [];
+    try {
+      if (parameters.length) statement.bind(parameters);
+      while (rows.length < limit && statement.step()) rows.push(Object.assign(Object.create(null), statement.get({})));
+    } finally { statement.reset(true); }
+    return rows;
+  }
+  all(...parameters) { return this.#rows(parameters, Infinity); }
+  get(...parameters) { return this.#rows(parameters, 1)[0]; }
+  run() { throw new Error("This database is read only."); }
+}
+
+export class DatabaseSync {
+  #database; #statements = [];
+  constructor(filename) {
+    if (!sqlite3) throw new Error("SQLite is still loading.");
+    if (!files.has(String(filename))) throw new Error(`${filename} is not a file this page was given.`);
+    this.#database = new sqlite3.oo1.DB({ filename: String(filename), flags: "r", vfs: VFS });
+  }
+  exec(sql) { this.#database.exec(sql); }
+  prepare(sql) {
+    const statement = new StatementSync(this.#database.prepare(sql));
+    this.#statements.push(statement.statement);
+    return statement;
+  }
+  close() {
+    for (const statement of this.#statements.splice(0)) statement.finalize();
+    this.#database.close();
+  }
+}
+
+export default { DatabaseSync, mountFile, ready };

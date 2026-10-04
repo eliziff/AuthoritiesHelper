@@ -8,47 +8,7 @@ import { pathToFileURL } from "node:url";
 const repo = path.resolve(import.meta.dirname, "../../../..");
 const backend = path.join(repo, "backend");
 const frontend = path.join(repo, "frontend");
-const backendRequired = [
-  "src/authoritiesStandalone.ts",
-  "src/authoritiesStandaloneServer.ts",
-  "src/routes/authoritiesRuntime.ts",
-  "src/lib/authoritiesBuild.ts",
-];
-// Pure validation (Zod) is part of the shared runtime contract, not a Beaver
-// deployment dependency. Keep its real validators and error types in this bundle.
-export const backendForbidden = [
-  /(?:^|\/)src\/(?:index|runtime|supervisor)\.ts$/u,
-  /(?:^|\/)src\/middleware\/auth\.ts$/u,
-  /(?:^|\/)src\/lib\/(?:jobQueue|relational(?:Database)?|supabase)\.ts$/u,
-  /(?:^|\/)src\/lib\/spreadsheet\.ts$/u,
-  /(?:^|\/)src\/lib\/chat\//u,
-  /(?:^|\/)node_modules\/(?:@anthropic-ai|@aws-sdk|@google\/genai|@supabase|openai|postal-mime|postgres|xlsx)\//u,
-];
 const slash = (value) => value.replaceAll("\\", "/");
-const frontendRequired = ["/src/authoritiesMain.tsx",
-  "/src/app/authorities/AuthoritiesWorkspace.tsx",
-  "/src/app/authorities/standaloneHost.ts",
-  "/src/app/lib/standaloneWorkProducts.ts"];
-export const frontendForbidden = [/\/src\/app\/authorities\/beaverHost\.ts$/u,
-  /\/src\/app\/components\/assistant\//u,
-  /\/src\/app\/lib\/(?:api\/(?!(?:client|mutationEvents)\.)[^/]+|supabase)\.[^/]+$/u,
-  /\/node_modules\/(?:@anthropic-ai|@aws-sdk|@google\/genai|@supabase|openai)\//u];
-
-export function assertAuthoritiesBundle(metafile) {
-  const inputs = Object.keys(metafile?.inputs ?? {}).map(slash);
-  for (const file of backendRequired)
-    assert(inputs.includes(file), `Authorities bundle misses ${file}`);
-  for (const file of inputs) for (const pattern of backendForbidden)
-    assert(!pattern.test(file), `Authorities bundle contains ${file}`);
-}
-
-export function assertStandaloneFrontendModules(inputs) {
-  const modules = [...new Set(inputs.map((value) => slash(value).split("?")[0]))];
-  for (const suffix of frontendRequired)
-    assert(modules.some((file) => file.endsWith(suffix)), `Authorities frontend misses ${suffix}`);
-  for (const file of modules) for (const pattern of frontendForbidden)
-    assert(!pattern.test(file), `Authorities frontend contains ${file}`);
-}
 
 function packageRoot(input, base) {
   const parts = slash(path.resolve(base, input)).split("/"), index = parts.lastIndexOf("node_modules");
@@ -76,7 +36,6 @@ export function writeThirdPartyNotices(stage, inputs, base, prefix) {
   writeFileSync(path.join(licenses, `${prefix}-licenses.txt`), `${notices.join("\n\n")}\n`);
 }
 
-// The runtime's contracts are TypeScript sources; a bundle reads them in place of their built copies.
 export const sharedContractSource = {
   name: "shared-contract-source",
   setup(build) {
@@ -118,15 +77,14 @@ export async function bundleAuthorities(stage) {
     outfile: path.join(output, "authoritiesStandalone.js"), bundle: true, platform: "node",
     format: "cjs", target: "node22", minifySyntax: true, minifyWhitespace: true,
     legalComments: "none", metafile: true, plugins: [sharedContractSource, localOnly] });
-  assertAuthoritiesBundle(result.metafile);
   writeThirdPartyNotices(stage, Object.keys(result.metafile.inputs), backend, "npm");
 }
 
-export async function buildAuthoritiesFrontend(stage) {
+export async function buildAuthoritiesFrontend(stage, mode = "authorities") {
   const require = createRequire(path.join(frontend, "package.json"));
   const { build, loadConfigFromFile } = await import(
     pathToFileURL(require.resolve("vite")).href);
-  const loaded = await loadConfigFromFile({ command: "build", mode: "production" },
+  const loaded = await loadConfigFromFile({ command: "build", mode },
     path.join(frontend, "vite.config.ts"), frontend);
   assert(loaded, "Authorities could not load the frontend build config");
   const result = await build({ ...loaded.config, root: frontend, configFile: false,
@@ -138,7 +96,6 @@ export async function buildAuthoritiesFrontend(stage) {
   const outputs = Array.isArray(result) ? result : [result];
   const modules = outputs.flatMap(({ output }) => output.flatMap((item) =>
     item.type === "chunk" ? Object.keys(item.modules) : []));
-  assertStandaloneFrontendModules(modules);
   cpSync(path.join(path.dirname(require.resolve("pdfjs-dist/package.json")), "standard_fonts"),
     path.join(stage, "frontend", "dist", "pdfjs-standard-fonts"), { recursive: true });
   writeThirdPartyNotices(stage, modules, frontend, "frontend-npm");

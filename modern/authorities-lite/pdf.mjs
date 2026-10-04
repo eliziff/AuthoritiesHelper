@@ -1,16 +1,16 @@
 import { getDocument, GlobalWorkerOptions, Util, OPS } from 'pdfjs-dist/build/pdf.mjs';
 import { PDFDocument } from 'pdf-lib';
 import * as pdfLib from 'pdf-lib';
-import { createSearchablePdf } from '../vendor/ocr-source/pdf-export.js';
-import { cropToPdfTransform } from '../vendor/ocr-source/text-layer.js';
+import { createSearchablePdf } from '../../../legal-browser-ocr/pdf-export.js';
+import { cropToPdfTransform } from '../../../legal-browser-ocr/text-layer.js';
 import { recognizePage } from './ocr.mjs';
 import { assetURL } from './assets.mjs';
 import { findTargets, initialMarks } from './domain.mjs';
 import { caller, extractCitations } from './engine.mjs';
-import { verifyIdentity } from './folder.mjs';
-import { ANNOTATION_SCHEMA, decodeAnnotationSet } from './vendor/pdf-annotations.mjs';
-import { writeAuthorityAnnotations } from './vendor/annotation-writer.mjs';
-import { reporterMarginLabels, resolvePdfPagination } from '../vendor/beaver/shared/pdf-page-binding.mjs';
+import { verifyIdentity } from '../../../shared/folder-pdf-match.mjs';
+import { ANNOTATION_SCHEMA, decodeAnnotationSet } from '../../../shared/pdf-annotations.mjs';
+import { writeAuthorityAnnotations } from '../../../shared/pdf-annotation-writer.mjs';
+import { reporterMarginLabels, resolvePdfPagination } from '../../../shared/pdf-page-binding.mjs';
 
 export async function hash(bytes) { return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), b => b.toString(16).padStart(2, '0')).join(''); }
 export const normalize = s => String(s).normalize('NFKC').replace(/\s+/g, ' ').trim();

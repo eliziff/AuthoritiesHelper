@@ -1,7 +1,7 @@
 // Adapter only: inference, layout, line ordering and PDF text geometry reuse Legal Browser OCR.
-import { TesseractLayout } from '../vendor/ocr-source/tesseract-layout.js';
-import { orderLayoutLines } from '../vendor/ocr-source/layout-order.js';
-import { positionedLines } from '../vendor/ocr-source/text-layer.js';
+import { TesseractLayout } from '../../../legal-browser-ocr/tesseract-layout.js';
+import { orderLayoutLines } from '../../../legal-browser-ocr/layout-order.js';
+import { positionedLines } from '../../../legal-browser-ocr/text-layer.js';
 import { bytes, assetURL, textAsset } from './assets.mjs';
 
 let singleton;
