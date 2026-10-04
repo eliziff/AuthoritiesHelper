@@ -27,7 +27,7 @@ export const SIGNATURES = {
   readDocumentTextRange: ["document", "start", "end", "offset", "limit"],
   documentFingerprint: ["document"], documentAnchors: ["document", "end"],
   documentOutline: ["document", "legislation"],
-  legalSourceViewer: ["document", "primaryKind", "limit"], documentTableCells: ["document"], statuteOutline: ["text"],
+  legalSourceViewer: ["document", "primaryKind", "limit"], documentTableCells: ["document"], statuteOutline: ["text"], caseOutline: ["text"],
   citationLookupKey: ["text"], citationLookupKeys: ["texts"], providerCitationsInText: ["text"],
   citationEngineCall: ["method", "request"],
   documentReadingOrder: ["request"],
