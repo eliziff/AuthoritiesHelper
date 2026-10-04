@@ -16,8 +16,12 @@ function rasterWorker() {
     for (const answer of answers.values()) answer.reject(new Error(event.message || 'The PDF renderer failed.'));
     answers.clear();
   };
-  // PDF.js decodes JPEG with the browser except in Chrome, which it tells by `globalThis.chrome`.
-  worker.postMessage({ pdfWorker: assetURL('pdfWorker'), imageDecoder: navigator.userAgent.includes('Firefox') || !globalThis.chrome });
+  // The viewer's PDF.js worker and image decoders, shared rather than carried twice. PDF.js decodes JPEG
+  // with the browser except in Chrome, which it tells by `globalThis.chrome`.
+  const imageDecoder = navigator.userAgent.includes('Firefox') || !globalThis.chrome;
+  Promise.all([globalThis.AUTHORITIES_PDF_WORKER_URL(), globalThis.AUTHORITIES_PDF_DECODERS()]).then(
+    ([pdfWorker, decoders]) => worker.postMessage({ pdfWorker, decoders, imageDecoder }),
+    (error) => worker.postMessage({ failed: error.message || 'PDF.js could not start.' }));
   return worker;
 }
 function ask(message, transfer) {

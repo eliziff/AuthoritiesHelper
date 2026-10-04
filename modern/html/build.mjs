@@ -20,6 +20,8 @@ import { SIGNATURES } from "./structure-addon.mjs";
 const here = import.meta.dirname, repo = path.resolve(here, "../../.."), frontend = path.join(repo, "frontend");
 const engineCrate = path.join(repo, "native/legal-structure-node");
 const fonts = path.join(frontend, "node_modules/pdfjs-dist/standard_fonts");
+// One PDF.js for the page: the recognizer's renderer is built from the viewer's copy, and shares its worker and decoders.
+const pdfjs = path.join(frontend, "node_modules/pdfjs-dist");
 
 async function buildFrontend() {
   const require = createRequire(path.join(frontend, "package.json"));
@@ -36,6 +38,7 @@ async function buildFrontend() {
         if(source === './standalonePdfText') return path.join(here,'standalone-pdf-text.mjs');
         // The viewer's PDF.js worker comes from the page bridge, gzipped, not inlined as a data: URL.
         if(source === './pdfWorkerUrl') return path.join(here,'standalone-pdf-worker.mjs');
+        if(source === './pdfDecoders') return path.join(here,'standalone-pdf-decoders.mjs');
       }}],
     build: { ...loaded.config.build, outDir, emptyOutDir: true, modulePreload: false,
       cssCodeSplit: false, assetsInlineLimit: () => true,
@@ -60,7 +63,7 @@ async function buildFrontend() {
 async function bundleScript(entry, define) {
   const { build } = createRequire(path.join(repo, "backend/package.json"))("esbuild");
   const result = await build({ entryPoints: [path.join(here, entry)], bundle: true, write: false,
-    format: "iife", target: "es2022", minify: true, define });
+    format: "iife", target: "es2022", minify: true, define, alias: { "pdfjs-dist": pdfjs } });
   return result.outputFiles[0].text;
 }
 
@@ -90,21 +93,24 @@ export async function buildAuthoritiesHtml(output) {
   const engine = buildEngine();
   const runtime = await bundleRuntime();
   const { html, script, css } = await buildFrontend();
-  const ocr = { ...await browserOcrAssets(),
-    pdfWorker: readFileSync(path.join(here, "../vendor/runtime/dist/pdf.worker.min.mjs")).toString("base64") };
-  // Named for what is recognized (recognized text is kept by it), before the assets are packed.
-  const ocrKey = browserOcrKey(ocr);
+  const ocr = { ...await browserOcrAssets() };
+  const pdfWorker = readFileSync(path.join(pdfjs, "legacy/build/pdf.worker.min.mjs"));
+  // Named for what is recognized (recognized text is kept by it), before the assets are packed: the
+  // PDF.js that draws the pages is part of it.
+  const ocrKey = browserOcrKey({ ...ocr, pdfWorker: pdfWorker.toString("base64") });
   // The worker that draws the pages to recognize: page code, like recognize-pdf.mjs, not in the key.
   ocr.rasterWorker = Buffer.from(await bundleScript("raster-worker.mjs")).toString("base64");
   // Gzip keeps the page small (these assets, the runtime and the fonts go in at a third of their
   // size): the page inflates the runtime as it starts and the recognizer's assets before the first
   // page is read, and the runtime Worker its engine, all off the main thread.
   const gzip = (bytes) => gzipSync(bytes, { level: 9 }).toString("base64");
-  const packed = ["model", "ortMjs", "ortWasm", "recognitionWorker", "layoutCore", "layoutWasm", "pdfWorker", "rasterWorker"];
+  const packed = ["model", "ortMjs", "ortWasm", "recognitionWorker", "layoutCore", "layoutWasm", "rasterWorker"];
   for (const name of packed) ocr[name] = gzip(Buffer.from(ocr[name], "base64"));
   const payload = {
     runtime: gzip(Buffer.from(runtime.code)), ocr: { ...ocr, gzip: packed }, engine: gzip(engine),
-    viewerPdfWorker: gzip(readFileSync(path.join(frontend, "node_modules/pdfjs-dist/legacy/build/pdf.worker.min.mjs"))),
+    viewerPdfWorker: gzip(pdfWorker),
+    pdfDecoders: Object.fromEntries(["jbig2.wasm", "openjpeg.wasm", "qcms_bg.wasm"]
+      .map((name) => [name, gzip(readFileSync(path.join(pdfjs, "wasm", name)))])),
     fonts: Object.fromEntries(readdirSync(fonts).filter((name) => !name.startsWith("LICENSE"))
       .map((name) => [name, gzip(readFileSync(path.join(fonts, name)))])),
   };

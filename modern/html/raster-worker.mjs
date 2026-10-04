@@ -1,9 +1,13 @@
 // Draws the pages the recognizer reads, off the page's main thread: PDF.js opens each source in its
 // own worker, started here, and draws each page here on an OffscreenCanvas. The page's pixels (for
 // the layout worker) and an ImageBitmap of it (for the recognition worker) go back as transferables.
-import { getDocument, PDFWorker } from 'pdfjs-dist/build/pdf.mjs';
+// It is the viewer's PDF.js, with the viewer's worker and image decoders, sent by the page.
+import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
+import { createPdfRuntime } from '../../../shared/browser-pdf.mjs';
 
-let worker, imageDecoder;
+let options, imageDecoder, started;
+// Requests wait until the page has sent PDF.js's worker; they arrive in order, the worker after them.
+const ready = new Promise((resolve, reject) => { started = { resolve, reject }; });
 const documents = new Map();
 // What PDF.js asks of a document, for its canvases and fonts, from this worker's own.
 const ownerDocument = { fonts: self.fonts, createElement: () => new OffscreenCanvas(1, 1) };
@@ -29,15 +33,19 @@ async function draw(source, index) {
 }
 
 self.onmessage = async ({ data }) => {
-  // First, PDF.js's worker as a data: URL (a module worker started from a file:// page cannot load a
-  // blob:null one), and whether to decode JPEG with the browser, as the page's PDF.js would: it asks
-  // `globalThis.chrome`, which a worker lacks.
-  if (data.pdfWorker) { worker = new PDFWorker({ port: new Worker(data.pdfWorker, { type: 'module' }) }); imageDecoder = data.imageDecoder; return; }
+  // PDF.js's worker as a data: URL (a module worker started from a file:// page cannot load a blob:null
+  // one), its decoders, and whether to decode JPEG with the browser, as the page's PDF.js would: it
+  // asks `globalThis.chrome`, which a worker lacks.
+  if (data.pdfWorker) {
+    ({ options } = createPdfRuntime(pdfjs, { workerUrl: data.pdfWorker, decoders: data.decoders, fileOrigin: true }));
+    imageDecoder = data.imageDecoder; started.resolve(); return;
+  }
+  if (data.failed) { started.reject(new Error(data.failed)); return; }
   if (data.close) { void documents.get(data.close)?.destroy(); documents.delete(data.close); return; }
   try {
+    await ready;
     if (data.open) {
-      documents.set(data.open, getDocument({ data: data.bytes, isEvalSupported: false, useSystemFonts: true,
-        isImageDecoderSupported: imageDecoder, ownerDocument, FilterFactory, worker }));
+      documents.set(data.open, getDocument(data.bytes));
       self.postMessage({ id: data.id, pages: (await documents.get(data.open).promise).numPages });
       return;
     }
@@ -45,3 +53,6 @@ self.onmessage = async ({ data }) => {
     self.postMessage({ id: data.id, ...answer }, transfer);
   } catch (error) { self.postMessage({ id: data.id, error: error.message }); }
 };
+
+const getDocument = (bytes) => pdfjs.getDocument({ ...options, data: bytes, useSystemFonts: true,
+  isImageDecoderSupported: imageDecoder, ownerDocument, FilterFactory });

@@ -35,6 +35,14 @@ globalThis.AUTHORITIES_PDF_WORKER_URL = () => viewerWorker ??= inflate(payload.v
     reader.onload = () => resolve(reader.result); reader.onerror = () => reject(reader.error);
     reader.readAsDataURL(new Blob([blob], { type: "text/javascript" }));
   }));
+// PDF.js's image decoders, by file name, as data: URLs for the viewer and the recognizer alike.
+let decoders;
+globalThis.AUTHORITIES_PDF_DECODERS = () => decoders ??= Promise.all(Object.entries(payload.pdfDecoders)
+  .map(async ([name, packed]) => [name, await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result); reader.onerror = () => reject(reader.error);
+    inflate(packed).blob().then((blob) => reader.readAsDataURL(new Blob([blob], { type: "application/wasm" })), reject);
+  })])).then(Object.fromEntries);
 // Ready before the first PDF opens, once the page is idle.
 (globalThis.requestIdleCallback ?? setTimeout)(() => globalThis.AUTHORITIES_PDF_WORKER_URL().catch(() => {}));
 
