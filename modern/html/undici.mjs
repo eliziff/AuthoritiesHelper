@@ -9,6 +9,9 @@ import { DEFAULT_SERVICE_URL } from "../provider-pdf-service.mjs";
 import { keepAnswer, keepPdf, keptAnswer, keptPdf } from "./source-pdf-cache.mjs";
 
 const DIRECT_HOSTS = new Set(["api.a2aj.ca"]);
+// A page built with the ukCaseLaw option (the ALR Quote Verifier) also reads UK decisions from the National
+// Archives' Find Case Law, which serves browsers directly too (Access-Control-Allow-Origin: *).
+if (__UK_CASE_LAW__) DIRECT_HOSTS.add("caselaw.nationalarchives.gov.uk");
 // Justice Laws serves its pages to browsers directly too (Access-Control-Allow-Origin: *): an annual
 // statute's page is read for its title, while its PDF still comes through the service.
 const directPage = (url) => url.hostname === "laws-lois.justice.gc.ca" && /^\/eng\/AnnualStatutes\/\d{4}_\d{1,3}\/$/u.test(url.pathname);

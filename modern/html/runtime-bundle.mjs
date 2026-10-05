@@ -35,7 +35,8 @@ const browserRuntime = (substitutes) => ({
 // `plugins` run first: a product built on this runtime (ALR) supplies its own operations through them.
 // `localStores`: the runtime reads local legal data files the page gives it (node/sqlite.mjs, with SQLite's
 // WebAssembly build, and the "mount-store" operation in runtime-worker.mjs); without it, neither is part of it.
-export async function bundleRuntime({ plugins = [], localStores = false } = {}) {
+// `ukCaseLaw`: the runtime reaches the National Archives' Find Case Law for UK decisions (undici.mjs).
+export async function bundleRuntime({ plugins = [], localStores = false, ukCaseLaw = false } = {}) {
   const { build } = createRequire(path.join(backend, "package.json"))("esbuild");
   const options = {
     absWorkingDir: backend, bundle: true, write: false,
@@ -48,11 +49,12 @@ export async function bundleRuntime({ plugins = [], localStores = false } = {}) 
   };
   // The Worker that parses PDFs beside the runtime, which starts it from this source.
   const parser = await build({ ...options, entryPoints: [own("parse-worker.mjs")], metafile: true,
-    define: { "process.env.NODE_ENV": '"production"' } });
+    define: { "process.env.NODE_ENV": '"production"', __UK_CASE_LAW__: String(ukCaseLaw) } });
   const result = await build({ ...options, entryPoints: [own("runtime-worker.mjs")], metafile: true,
     // Server code locates siblings from its own directory; the runtime has one virtual root.
     define: { "process.env.NODE_ENV": '"production"', __dirname: '"/app"', __filename: '"/app/runtime.js"',
-      __PARSE_WORKER__: JSON.stringify(parser.outputFiles[0].text), __LOCAL_STORES__: String(localStores) },
+      __PARSE_WORKER__: JSON.stringify(parser.outputFiles[0].text), __LOCAL_STORES__: String(localStores),
+      __UK_CASE_LAW__: String(ukCaseLaw) },
   });
   // Every file either bundle read, relative to the backend.
   const inputs = [...new Set([parser, result].flatMap(({ metafile }) => Object.keys(metafile.inputs)))]
