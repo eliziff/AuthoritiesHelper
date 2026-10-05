@@ -104,7 +104,8 @@ async function bundleScript(entry, define) {
 const inline = (code) => code.replaceAll("</script", "<\\/script");
 
 /** `app`: another app made of this page (ALR): its `name`, its page `title`, the `entry` that starts it in
- *  place of authoritiesMain.tsx, and esbuild `runtimePlugins` that give its runtime its operations. */
+ *  place of authoritiesMain.tsx, esbuild `runtimePlugins` that give its runtime its operations, and
+ *  `localStores` when its runtime reads local legal data files the page gives it (runtime-bundle.mjs). */
 export async function buildAuthoritiesHtml(output, { release = false, app } = {}) {
   // A dev page takes the engine built last, fast to compile; a release page only the optimized one,
   // and never one older than the engine's latest changes.
@@ -121,8 +122,8 @@ export async function buildAuthoritiesHtml(output, { release = false, app } = {}
   const viteEnvironment = JSON.stringify(Object.entries(process.env)
     .filter(([name]) => name.startsWith("VITE_") || ['NODE_ENV', 'BEAVER_API_ORIGIN'].includes(name)).sort());
   const [runtime, { html, script, css }, assets, rasterWorker] = await Promise.all([
-    cached(cacheDir, app ? `runtime-${app.name}` : "runtime", "", async () => {
-      const { code, inputs } = await bundleRuntime({ plugins: app?.runtimePlugins ?? [] });
+    cached(cacheDir, app ? `runtime-${app.name}` : "runtime", app?.localStores ? "local-stores" : "", async () => {
+      const { code, inputs } = await bundleRuntime({ plugins: app?.runtimePlugins ?? [], localStores: !!app?.localStores });
       const files = bundledFiles(inputs, backend);
       // A contract's TypeScript source, once written, replaces the JavaScript the runtime bundled.
       const contracts = files.flatMap((file) => /[\\/]shared[\\/]runtime[\\/][^\\/]+\.mjs$/u.test(file)

@@ -16,8 +16,9 @@ const files = new Map(); // path -> Blob
 const open = new Map(); // sqlite3_file pointer -> { blob, blocks }
 let sqlite3 = null;
 
-/** Resolves once SQLite is compiled; DatabaseSync needs it. */
-export const ready = sqlite3InitModule({ wasmBinary, print: () => {}, printErr: () => {} })
+/** Resolves once SQLite is compiled; DatabaseSync needs it. Its WebAssembly is part of the runtime: no
+ *  file beside the bundle to locate (the runtime has no import.meta.url to locate one from). */
+export const ready = sqlite3InitModule({ wasmBinary, locateFile: (file) => file, print: () => {}, printErr: () => {} })
   .then((module) => { sqlite3 = module; installVfs(module); });
 
 /** Makes `file` the database at `filename`; null forgets it. */

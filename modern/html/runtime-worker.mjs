@@ -108,6 +108,8 @@ self.onmessage = async ({ data }) => {
     try {
       await loadEngine(data.engine);
       operations = createAuthoritiesOperations();
+      // A page built with local stores (runtime-bundle.mjs) gives the runtime the files it reads them from.
+      if (__LOCAL_STORES__) operations["mount-store"] = (await import("./local-stores.mjs")).mountStore;
     } catch (error) {
       // A rejected handler does not reach the page's onerror; say so, or every request waits.
       self.postMessage({ type: "failed", message: error instanceof Error ? error.message : String(error) });

@@ -19,27 +19,32 @@ const SUBSTITUTES = {
   undici: own("undici.mjs"),
 };
 
-export const browserRuntime = {
+const browserRuntime = (substitutes) => ({
   name: "authorities-browser-runtime",
   setup(build) {
     build.onResolve({ filter: /[\\/]pdfProfile$/ }, () => ({ path: own("pdf-profile.mjs") }));
     build.onResolve({ filter: /^(?:node:)?[a-z_]+(?:\/[a-z_]+)?$/ }, ({ path: name, importer }) => {
       // readable-stream probes for a native stream; it is the stream implementation here.
       if (name === "stream" && /node_modules[\\/]readable-stream[\\/]/.test(importer)) return { path: own("node/absent.mjs") };
-      const substitute = SUBSTITUTES[name.replace(/^node:/, "")];
+      const substitute = substitutes[name.replace(/^node:/, "")];
       return substitute ? { path: substitute } : null;
     });
   },
-};
+});
 
 // `plugins` run first: a product built on this runtime (ALR) supplies its own operations through them.
-export async function bundleRuntime({ plugins = [] } = {}) {
+// `localStores`: the runtime reads local legal data files the page gives it (node/sqlite.mjs, with SQLite's
+// WebAssembly build, and the "mount-store" operation in runtime-worker.mjs); without it, neither is part of it.
+export async function bundleRuntime({ plugins = [], localStores = false } = {}) {
   const { build } = createRequire(path.join(backend, "package.json"))("esbuild");
   const options = {
     absWorkingDir: backend, bundle: true, write: false,
     platform: "browser", format: "iife", target: "es2022", minify: true, legalComments: "none",
     mainFields: ["browser", "module", "main"], conditions: ["worker", "browser"],
-    inject: [own("node/globals.mjs")], plugins: [...plugins, sharedContractSource, localOnly, browserRuntime], logLevel: "warning",
+    inject: [own("node/globals.mjs")], logLevel: "warning",
+    plugins: [...plugins, sharedContractSource, localOnly,
+      browserRuntime(localStores ? { ...SUBSTITUTES, sqlite: own("node/sqlite.mjs") } : SUBSTITUTES)],
+    ...localStores ? { loader: { ".wasm": "binary" } } : {},
   };
   // The Worker that parses PDFs beside the runtime, which starts it from this source.
   const parser = await build({ ...options, entryPoints: [own("parse-worker.mjs")], metafile: true,
@@ -47,7 +52,7 @@ export async function bundleRuntime({ plugins = [] } = {}) {
   const result = await build({ ...options, entryPoints: [own("runtime-worker.mjs")], metafile: true,
     // Server code locates siblings from its own directory; the runtime has one virtual root.
     define: { "process.env.NODE_ENV": '"production"', __dirname: '"/app"', __filename: '"/app/runtime.js"',
-      __PARSE_WORKER__: JSON.stringify(parser.outputFiles[0].text) },
+      __PARSE_WORKER__: JSON.stringify(parser.outputFiles[0].text), __LOCAL_STORES__: String(localStores) },
   });
   // Every file either bundle read, relative to the backend.
   const inputs = [...new Set([parser, result].flatMap(({ metafile }) => Object.keys(metafile.inputs)))]
