@@ -53,7 +53,7 @@ class QualityOCR {
         sourceResolution: 200, psm: 3, binaryThreshold: 0 }, [pixels]);
     });
   }
-  /** A page drawn off this thread: its RGBA pixels and an ImageBitmap of it, both handed on. */
+  /** A page drawn off this thread: its grey pixels and an ImageBitmap of it, both handed on. */
   async recognize({ pixels, bitmap }, signal) {
     const { width, height } = bitmap;
     signal?.throwIfAborted(); await this.ready; signal?.throwIfAborted();

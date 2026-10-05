@@ -15,7 +15,7 @@ const files = {
   model: path.join(runtime, 'assets/model.ort'), codec: path.join(runtime, 'assets/codec.json'),
   ortMjs: path.join(wasm, 'ort.mjs'), ortWasm: path.join(wasm, 'ort.wasm'),
   recognitionWorker: path.join(runtime, 'dist/recognition-worker.js'),
-  layoutWorker: path.join(runtime, 'tesseract-layout-worker.js'),
+  layoutWorker: path.join(import.meta.dirname, 'layout-worker.js'),
   layoutCore: path.join(wasm, 'layout-core.mjs'), layoutWasm: path.join(wasm, 'layout-core.wasm'),
 };
 
