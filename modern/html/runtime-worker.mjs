@@ -62,6 +62,16 @@ async function loadEngine(base64) {
 }
 let operations;
 const active = new Map();
+// The engine's memory grows to the largest work it has done and never shrinks. Once no operation is
+// under way, an engine grown past the limit is started afresh and readied again at once; the documents
+// it held are read again from the parse cache when next asked for.
+const ENGINE_MEMORY_LIMIT = 256 * 1024 * 1024;
+function recycleWhenIdle() {
+  const addon = structureNative();
+  if (active.size || addon.memoryBytes() <= ENGINE_MEMORY_LIMIT) return;
+  addon.recycle();
+  warmStructureAddon(addon);
+}
 async function handle({ id, operation, input }) {
   const controller = new AbortController();
   active.set(id, controller);
@@ -82,7 +92,7 @@ async function handle({ id, operation, input }) {
       self.postMessage({ type: "error", id, status, message: status === 500
         ? "Authorities could not complete that operation" : error.message });
     }
-  } finally { active.delete(id); }
+  } finally { active.delete(id); recycleWhenIdle(); }
 }
 
 self.onmessage = async ({ data }) => {

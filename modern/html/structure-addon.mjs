@@ -27,6 +27,7 @@ export function createStructureAddon(instantiate, toBuffer, recognizePdf, parser
       wasm.authorities_free(output, size + 4);
       return reply;
     },
+    memoryBytes: () => engine?.instance.exports.memory.buffer.byteLength ?? 0,
     restart() {
       const dropped = engine;
       engine = null;
