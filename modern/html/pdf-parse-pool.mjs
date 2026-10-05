@@ -29,12 +29,12 @@ function spawn() {
   return worker;
 }
 
-// A parser that has read a PDF is closed when left idle, with the memory that parse used; a
-// fresh one takes the place of the last, so the next PDF need not wait for a parser to start.
+// A parser that has read a PDF is closed when left idle, with the memory its engine holds (over
+// 100 MB once readied); the next PDF starts one. The one readied as the page opens waits for the
+// first PDF.
 function park(worker, fresh = false) {
   const parked = { worker, timer: fresh ? undefined : setTimeout(() => {
     idle.splice(idle.indexOf(parked), 1); worker.terminate();
-    if (!idle.length && !running) park(spawn(), true);
   }, IDLE_MS) };
   idle.push(parked);
 }

@@ -116,8 +116,9 @@ self.onmessage = async ({ data }) => {
     self.postMessage({ type: "ready" });
     // Ready the engine and a PDF parser now, while the user chooses a file, not during their first import.
     // The parser starts first: its Worker cannot receive the engine while this thread is busy.
-    // The previews' runtime draws covers and indexes and parses no PDF: it readies no parser.
-    (self.name === "authorities-previews" ? Promise.resolve() : pdfParser.warm()).then(() => {
+    // The previews' runtime draws covers and indexes, which call no engine: it readies neither, and its
+    // engine (over 100 MB once readied) is started only if a preview ever asks for it.
+    if (self.name !== "authorities-previews") pdfParser.warm().then(() => {
       try { warmStructureAddon(structureNative()); } catch (error) { console.error(error); }
     });
   } else if (data.type === "operation") {
