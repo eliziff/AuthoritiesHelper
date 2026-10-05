@@ -3,9 +3,16 @@ import { orderLayoutLines } from '../../../legal-browser-ocr/layout-order.js';
 import { positionedLines } from '../../../legal-browser-ocr/text-layer.js';
 import { assetsReady, bytes, assetURL, textAsset } from './assets.mjs';
 
-// Each recognizer reads one page at a time on its own workers, so pages are read side by side by
-// as many recognizers as the machine has cores to spare; each is small (a 0.7 MB model).
-export const OCR_PARALLEL = Math.max(1, Math.min(4, Math.floor((globalThis.navigator?.hardwareConcurrency ?? 2) / 2)));
+// Each recognizer reads one page at a time on its own workers, so pages are read side by side. Each
+// one recognizing holds about 450 MB of the page's memory (its WebAssembly, the page images it is
+// given, its buffers), so how many run is the smaller of what the device's memory and its cores allow:
+// memory (navigator.deviceMemory, GB): 8 or more → 4, more than 4 → 2, 4 or less → 1, unreported → 2;
+// cores (navigator.hardwareConcurrency): one recognizer for every two, at least one.
+// On the 190-source manuscript the page peaks at 2.2 GB with four, 1.9 GB with two and 1.4 GB with one,
+// and its Build, which waits on the scan's pages, takes 85 s, about 145 s and 290 s.
+const recognizersForMemory = (gigabytes) => gigabytes === undefined ? 2 : gigabytes >= 8 ? 4 : gigabytes > 4 ? 2 : 1;
+export const OCR_PARALLEL = Math.max(1, Math.min(recognizersForMemory(globalThis.navigator?.deviceMemory),
+  Math.floor((globalThis.navigator?.hardwareConcurrency ?? 2) / 2)));
 const idle = [];
 const OCR_IDLE_MS = 30_000;
 let created = 0, codec;
