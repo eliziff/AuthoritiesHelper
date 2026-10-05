@@ -2,15 +2,25 @@
 import { assetsReady, assetURL } from '../browser-ocr/assets.mjs';
 import { OCR_PARALLEL, recognizePage } from '../browser-ocr/ocr.mjs';
 
-// PDF.js opens and draws the pages in one worker (raster-worker.mjs), made once, so this thread never
-// draws or reads a page's pixels (50-100 ms a page): it only routes them to the recognizer's workers.
-let raster, asked = 0;
+// PDF.js opens and draws the pages in one worker (raster-worker.mjs), so this thread never draws or
+// reads a page's pixels (50-100 ms a page): it only routes them to the recognizer's workers. Left with
+// no document open for a while, it ends, and the memory PDF.js holds with it.
+let raster, rasterEnding, asked = 0;
+const RASTER_IDLE_MS = 30_000;
+function rasterQuiet() {
+  clearTimeout(rasterEnding);
+  if (raster && !documents.size && !answers.size) rasterEnding = setTimeout(() => {
+    if (documents.size || answers.size) return;
+    raster.terminate(); raster = undefined;
+  }, RASTER_IDLE_MS);
+}
 const answers = new Map();
 function rasterWorker() {
   const worker = new Worker(assetURL('rasterWorker'));
   worker.onmessage = ({ data }) => {
     const answer = answers.get(data.id); if (!answer) return;
     answers.delete(data.id); data.error === undefined ? answer.resolve(data) : answer.reject(new Error(data.error));
+    rasterQuiet();
   };
   worker.onerror = (event) => {
     for (const answer of answers.values()) answer.reject(new Error(event.message || 'The PDF renderer failed.'));
@@ -25,6 +35,7 @@ function rasterWorker() {
   return worker;
 }
 function ask(message, transfer) {
+  clearTimeout(rasterEnding);
   raster ??= rasterWorker();
   return new Promise((resolve, reject) => {
     answers.set(++asked, { resolve, reject });
@@ -45,6 +56,7 @@ function useDocument(source, bytes) {
   return { open: entry.open, close() {
     if (--entry.users) return;
     documents.delete(source); if (entry.pages) raster?.postMessage({ close: source });
+    rasterQuiet();
   } };
 }
 

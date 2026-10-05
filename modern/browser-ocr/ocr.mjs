@@ -7,6 +7,7 @@ import { assetsReady, bytes, assetURL, textAsset } from './assets.mjs';
 // as many recognizers as the machine has cores to spare; each is small (a 0.7 MB model).
 export const OCR_PARALLEL = Math.max(1, Math.min(4, Math.floor((globalThis.navigator?.hardwareConcurrency ?? 2) / 2)));
 const idle = [];
+const OCR_IDLE_MS = 30_000;
 let created = 0, codec;
 class QualityOCR {
   constructor() {
@@ -38,7 +39,7 @@ class QualityOCR {
       };
       const model = bytes('model').slice();
       this.worker.postMessage({ type: 'init', runtimeMjs: assetURL('ortMjs'), runtimeWasm: assetURL('ortWasm', 'application/wasm'),
-        model, codec: codec ??= JSON.parse(textAsset('codec')), batchSize: 32, bucketSize: 24, padding: 16 }, [model.buffer]);
+        model, codec: codec ??= JSON.parse(textAsset('codec')), batchSize: 8, bucketSize: 24, padding: 16 }, [model.buffer]);
     });
   }
   findLines(pixels, width, height) {
@@ -82,6 +83,7 @@ export async function recognizePage(page, signal) {
   signal?.throwIfAborted();
   await assetsReady(); signal?.throwIfAborted();
   const ocr = idle.pop() ?? (created++, new QualityOCR());
+  clearTimeout(ocr.ended);
   let abort;
   const cancelled = new Promise((_, reject) => {
     abort = () => reject(signal.reason);
@@ -90,9 +92,12 @@ export async function recognizePage(page, signal) {
   const reading = ocr.recognize(page, signal);
   // A recognizer waits for the next page once its own is done or given up (it stops at the next
   // step), never while it is still busy: making another costs its model and workers again. One that
-  // failed is discarded with its workers.
+  // failed is discarded with its workers, and one left waiting a while ends with them, giving back
+  // the memory its model and Tesseract hold.
   reading.then(() => true, (error) => error?.name === 'AbortError').then((reusable) => {
-    if (reusable && created <= OCR_PARALLEL) idle.push(ocr); else { ocr.dispose(); created -= 1; }
+    if (!reusable || created > OCR_PARALLEL) { ocr.dispose(); created -= 1; return; }
+    ocr.ended = setTimeout(() => { idle.splice(idle.indexOf(ocr), 1); ocr.dispose(); created -= 1; }, OCR_IDLE_MS);
+    idle.push(ocr);
   });
   try { return await Promise.race([reading, cancelled]); }
   finally { signal?.removeEventListener('abort', abort); }
