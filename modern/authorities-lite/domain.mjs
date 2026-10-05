@@ -6,14 +6,8 @@ export const key = (text, engine) => citationCall(engine, 'keyForText', { text: 
 /** The style of cause a decision prints before its own citation, as a CanLII PDF opens: "Citation: Pell v
  *  Marlow Holdings, 2030 ABKB 12" gives "Pell v Marlow Holdings". A caption that is not a plain "Name, citation" (a label such as "Neutral
  *  citation:" or a heading's bracket read into the name) names nothing. */
-export function captionStyleOfCause(text, record, engine) {
-  const keys = new Set(record.aliases.map(alias => key(alias, engine)).filter(Boolean));
-  // Read as one run of text, as Beaver reads a PDF's page: a label on the line above stays out of the name.
-  const own = extractCitations(engine, String(text).replace(/\s+/gu, ' ')).find(c => c.form === 'full' && c.key && keys.has(c.key) && c.style?.text.trim());
-  const style = own?.style.text.trim().replace(/[\s,]+$/u, '');
-  const balanced = (open, close) => style.split(open).length === style.split(close).length;
-  return style && !style.endsWith(':') && balanced('(', ')') && balanced('[', ']') ? style : null;
-}
+export const captionStyleOfCause = (text, record, engine) => citationCall(engine, 'captionStyleOfCause',
+  { text: String(text), keys: [...new Set(record.aliases.map(alias => key(alias, engine)).filter(Boolean))] });
 export const targetLabel =t => `${t.kind === 'page' ? 'Page' : 'Para'} ${t.value}${t.item ? ` · item ${t.item}` : ''}`;
 export function expandLocator({ first, last }) {
   if (last && /^\d+$/.test(first) && /^\d+$/.test(last)) {
