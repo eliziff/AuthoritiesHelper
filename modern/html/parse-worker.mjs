@@ -7,7 +7,7 @@ import { createStructureAddon, warmStructureAddon } from "./structure-addon.mjs"
 import { createWasi } from "./wasi.mjs";
 
 const volume = new Volume(), fs = createFsFromVolume(volume);
-let engine, addon;
+let engine, addon, memory;
 
 function files(directory) {
   if (!fs.existsSync(directory)) return [];
@@ -28,6 +28,7 @@ self.onmessage = async ({ data: { id, module, bytes, request, cache } }) => {
         env: { LEGALPDF_CACHE_MAX_BYTES: String(Number.MAX_SAFE_INTEGER) } });
       const instance = new WebAssembly.Instance(engine, wasi.imports);
       wasi.initialize(instance);
+      memory = instance.exports.memory;
       return { instance, close: wasi.close,
         panic: () => stderr.split(/panicked at [^\n]*\n/u).at(-1).trim().split("\n")[0] ?? "" };
     });
@@ -46,7 +47,9 @@ self.onmessage = async ({ data: { id, module, bytes, request, cache } }) => {
     const written = files(request.cache_dir).filter((path) => given.get(path) !== fs.statSync(path).size)
       .map((path) => [path, new Uint8Array(fs.readFileSync(path))]);
     volume.reset();
-    self.postMessage({ id, summary, files: written }, written.map(([, content]) => content.buffer));
+    // The engine's memory, which never shrinks, tells the pool when to start this parser afresh.
+    self.postMessage({ id, summary, files: written, memory: memory.buffer.byteLength },
+      written.map(([, content]) => content.buffer));
   } catch (error) {
     volume.reset();
     self.postMessage({ id, error: error instanceof Error ? error.message : String(error) });

@@ -8,7 +8,10 @@ import fs from "./node/fs.mjs";
 const PARSERS = Math.max(1, Math.min(2, Math.floor((globalThis.navigator?.hardwareConcurrency ?? 4) / 4)));
 const IDLE_MS = 30_000;
 // Kept in this runtime's memory; the page's store keeps more, and a parse refills from it.
-const MEMORY_LIMIT = 128 * 1024 * 1024;
+const MEMORY_LIMIT = 32 * 1024 * 1024;
+// A parser whose engine has grown past this (its memory never shrinks) is closed once its parse is
+// done, and the next parse starts on a fresh one.
+const PARSER_MEMORY_LIMIT = 256 * 1024 * 1024;
 
 let engine, source;
 const idle = [], queue = [];
@@ -70,7 +73,10 @@ function drain() {
       drain();
     };
     worker.healthy = true;
-    worker.onmessage = ({ data }) => data.started || finish(() => data.error ? entry.reject(new Error(data.error)) : entry.resolve(data));
+    worker.onmessage = ({ data }) => data.started || finish(() => {
+      if (data.memory > PARSER_MEMORY_LIMIT) worker.healthy = false;
+      data.error ? entry.reject(new Error(data.error)) : entry.resolve(data);
+    });
     worker.onerror = (event) => {
       event.preventDefault?.(); worker.healthy = false;
       finish(() => entry.reject(new Error(event.message || "The PDF parser stopped.")));
