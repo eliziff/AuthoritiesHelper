@@ -2,11 +2,12 @@
 // official WebAssembly build reads it through a VFS whose reads are File.slice() calls answered at once
 // (FileReaderSync, which Workers have), so a database of any size is read in place, never copied.
 // mountFile() names the file by the path Beaver's code opens; the path exists in the runtime's
-// filesystem as an empty placeholder, so existsSync and statSync see it.
+// filesystem as an empty placeholder that stats as the file (its size and modification time), so
+// existsSync and statSync see it as a lookup checking which database it reads expects.
 import sqlite3InitModule from "@sqlite.org/sqlite-wasm";
 import wasmBinary from "@sqlite.org/sqlite-wasm/sqlite3.wasm";
 import path from "path";
-import fs from "./fs.mjs";
+import fs, { volume } from "./fs.mjs";
 
 const VFS = "picked-file";
 // Reads go to the file in blocks this large, the most recent kept: a lookup's B-tree pages and a
@@ -27,6 +28,10 @@ export function mountFile(filename, file) {
   files.set(filename, file);
   fs.mkdirSync(path.dirname(filename), { recursive: true });
   fs.writeFileSync(filename, "");
+  // memfs (pinned) keeps a file's size and time on its node; nothing reads the placeholder's bytes.
+  const node = volume._core.getResolvedLinkOrThrow(filename).getNode();
+  node.size = file.size;
+  node.mtime = new Date(file.lastModified);
 }
 
 function readBlock(entry, index) {
