@@ -6,8 +6,9 @@ import { createWasi } from "./wasi.mjs";
 import { createStructureAddon, warmStructureAddon } from "./structure-addon.mjs";
 import { ApplicationError } from "../../../backend/src/lib/applicationError";
 import { createAuthoritiesOperations } from "../../../backend/src/lib/authoritiesOperations";
+import { authoritySourceServices, resolveAuthoritiesSources } from "../../../backend/src/lib/authoritiesSourceResolution";
 import { structureNative } from "../../../backend/src/lib/structureNative";
-import { pageAnswered } from "./source-pdf-cache.mjs";
+import { keptPdf, pageAnswered } from "./source-pdf-cache.mjs";
 import { parseCacheAnswered, pdfParser } from "./pdf-parse-pool.mjs";
 
 
@@ -107,7 +108,10 @@ self.onmessage = async ({ data }) => {
   } else if (data.type === "init") {
     try {
       await loadEngine(data.engine);
-      operations = createAuthoritiesOperations();
+      // A publisher's original the page kept from an earlier fetch stands in for one it blocked now.
+      const sources = { ...authoritySourceServices, stored: keptPdf };
+      operations = createAuthoritiesOperations((draft, _sources, signal, authorityId, progress, keptOnly) =>
+        resolveAuthoritiesSources(draft, sources, signal, authorityId, progress, keptOnly));
       // A page built with local stores (runtime-bundle.mjs) gives the runtime the files it reads them from.
       if (__LOCAL_STORES__) operations["mount-store"] = (await import("./local-stores.mjs")).mountStore;
     } catch (error) {
