@@ -189,7 +189,11 @@ function cacheDatabase() {
   return database ??= new Promise(resolve => {
     const request = indexedDB.open('authorities-browser-ocr', 1);
     request.onupgradeneeded = () => request.result.createObjectStore('pages', { keyPath: 'key' });
-    request.onsuccess = () => resolve(request.result);
+    request.onsuccess = () => {
+      // Let go when the page's data is cleared, so it can be deleted.
+      request.result.onversionchange = () => { request.result.close(); database = undefined; };
+      resolve(request.result);
+    };
     request.onerror = () => resolve(null);
     request.onblocked = () => resolve(null);
   });

@@ -12,7 +12,11 @@ const open = () => database ??= new Promise((resolve) => {
       request.result.createObjectStore("files");
       request.result.createObjectStore("uses");
     };
-    request.onsuccess = () => resolve(request.result);
+    request.onsuccess = () => {
+      // Let go when the page's data is cleared, so it can be deleted.
+      request.result.onversionchange = () => { request.result.close(); database = undefined; };
+      resolve(request.result);
+    };
     request.onerror = request.onblocked = () => resolve(null);
   } catch { resolve(null); }
 });
