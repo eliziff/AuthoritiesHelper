@@ -124,8 +124,10 @@ export async function buildAuthoritiesHtml(output, { release = false, app } = {}
   const viteEnvironment = JSON.stringify(Object.entries(process.env)
     .filter(([name]) => name.startsWith("VITE_") || ['NODE_ENV', 'BEAVER_API_ORIGIN'].includes(name)).sort());
   const [runtime, { html, script, css }, assets, rasterWorker] = await Promise.all([
+    // An app's runtime is its own checkout's: two copies of one app (a checkout and a packaging copy) share a name.
     cached(cacheDir, app ? `runtime-${app.name}` : "runtime",
-      [app?.localStores && "local-stores", app?.ukCaseLaw && "uk-case-law", app?.network === false && "no-network"].filter(Boolean).join(" "), async () => {
+      [app?.entry, app?.localStores && "local-stores", app?.ukCaseLaw && "uk-case-law", app?.network === false && "no-network"]
+        .filter(Boolean).join(" "), async () => {
       const { code, inputs } = await bundleRuntime({ plugins: app?.runtimePlugins ?? [], localStores: !!app?.localStores,
         ukCaseLaw: !!app?.ukCaseLaw, network: app?.network !== false });
       const files = bundledFiles(inputs, backend);
