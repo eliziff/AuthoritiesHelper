@@ -5,17 +5,26 @@ import { DatabaseSync, mountFile, ready } from "node:sqlite";
 import { process } from "./node/globals.mjs";
 import { useA2AJCorpus } from "../../../backend/src/lib/legalSources/a2aj";
 import { journalLegalSourceProvider } from "../../../backend/src/lib/legalSources/journal";
+import { keepLocal } from "./undici.mjs";
 
 const A2AJ = "/stores/a2aj/a2aj.sqlite", JOURNALS = "/stores/journals/public_endpoint.db";
 const JOURNALS_SEARCH = "/stores/journals/public_endpoint-search.sqlite";
 const journals = { database: null, search: null, at: null };
+let a2ajMounted = false;
 
 /** The "mount-store" operation: reads `file` as the store, or stops reading it (null). For A2AJ,
- *  `localOnly` keeps every lookup on this computer. */
+ *  `localOnly` keeps every lookup on this computer: A2AJ, the National Archives, Justice Laws and the publisher PDF
+ *  service are asked nothing. It holds from the moment the message arrives, before the store is read, so an
+ *  operation the page asks for after it never reaches the network. */
 export async function mountStore({ store, file, localOnly }) {
+  if (store === "a2aj") {
+    keepLocal(!!localOnly);
+    useA2AJCorpus(a2ajMounted ? A2AJ : null, { localOnly: !!localOnly });
+  }
   await ready;
   if (store === "a2aj") {
     mountFile(A2AJ, file);
+    a2ajMounted = !!file;
     useA2AJCorpus(file ? A2AJ : null, { localOnly: !!localOnly });
     return { data: null };
   }

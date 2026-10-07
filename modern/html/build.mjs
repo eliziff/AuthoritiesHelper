@@ -106,7 +106,8 @@ const inline = (code) => code.replaceAll("</script", "<\\/script");
 /** `app`: another app made of this page (ALR): its `name`, its page `title`, the `entry` that starts it in
  *  place of authoritiesMain.tsx, esbuild `runtimePlugins` that give its runtime its operations, and
  *  `localStores` when its runtime reads local legal data files the page gives it, and `ukCaseLaw` when it reaches
- *  the National Archives for UK decisions (runtime-bundle.mjs). */
+ *  the National Archives for UK decisions (runtime-bundle.mjs). `network: false` gives it a runtime that reaches nothing
+ *  off the computer and holds no code that would (runtime-bundle.mjs). */
 export async function buildAuthoritiesHtml(output, { release = false, app } = {}) {
   // A dev page takes the engine built last, fast to compile; a release page only the optimized one,
   // and never one older than the engine's latest changes.
@@ -124,9 +125,9 @@ export async function buildAuthoritiesHtml(output, { release = false, app } = {}
     .filter(([name]) => name.startsWith("VITE_") || ['NODE_ENV', 'BEAVER_API_ORIGIN'].includes(name)).sort());
   const [runtime, { html, script, css }, assets, rasterWorker] = await Promise.all([
     cached(cacheDir, app ? `runtime-${app.name}` : "runtime",
-      [app?.localStores && "local-stores", app?.ukCaseLaw && "uk-case-law"].filter(Boolean).join(" "), async () => {
+      [app?.localStores && "local-stores", app?.ukCaseLaw && "uk-case-law", app?.network === false && "no-network"].filter(Boolean).join(" "), async () => {
       const { code, inputs } = await bundleRuntime({ plugins: app?.runtimePlugins ?? [], localStores: !!app?.localStores,
-        ukCaseLaw: !!app?.ukCaseLaw });
+        ukCaseLaw: !!app?.ukCaseLaw, network: app?.network !== false });
       const files = bundledFiles(inputs, backend);
       // A contract's TypeScript source, once written, replaces the JavaScript the runtime bundled.
       const contracts = files.flatMap((file) => /[\\/]shared[\\/]runtime[\\/][^\\/]+\.mjs$/u.test(file)

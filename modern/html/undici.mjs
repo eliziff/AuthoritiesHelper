@@ -2,7 +2,7 @@
 // sends Access-Control-Allow-Origin: *) are fetched from the page. Court publisher
 // PDFs come from the Cloudflare Worker Authorities-lite uses, which returns the
 // publisher's own PDF for a decision page or PDF URL. No other source is reachable from
-// the page; its PDF is attached instead.
+// the page; its PDF is attached instead. A page built without network reaches none of them.
 import { DECISIA_HOSTS, LEGISLATION_PDF_HOSTS } from "../../../backend/src/lib/legalSourcePresentation.ts";
 
 import { DEFAULT_SERVICE_URL } from "../provider-pdf-service.mjs";
@@ -70,8 +70,13 @@ export class Agent {
   close() { return Promise.resolve(); }
 }
 
-export async function fetch(input, init = {}) {
+// "Use only local data" (local-stores.mjs): no host is asked anything while it is on.
+let localOnly = false;
+export const keepLocal = (value) => { localOnly = value; };
+
+async function networkFetch(input, init = {}) {
   const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
+  if (localOnly) throw new Error(`${url.hostname} is not asked: "Use only local data" is on.`);
   const { dispatcher: _dispatcher, duplex: _duplex, redirect, ...rest } = init;
   if (DIRECT_HOSTS.has(url.hostname)) {
     return directAnswer(url, { ...rest, credentials: "omit", referrerPolicy: "no-referrer",
@@ -82,4 +87,9 @@ export async function fetch(input, init = {}) {
   if (PUBLISHER_HOSTS.has(url.hostname)) return publisherPdf(url, rest);
   throw new Error(`${url.hostname} cannot be reached from this page. Attach the PDF instead.`);
 }
+// A page built without network (runtime-bundle.mjs) reaches no host at all, and holds none of the code that would.
+export const fetch = __NETWORK__ ? networkFetch : async (input) => {
+  const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
+  throw new Error(`${url.hostname} cannot be reached: this page reads only data on this computer. Attach the PDF instead.`);
+};
 export default { Agent, fetch };
