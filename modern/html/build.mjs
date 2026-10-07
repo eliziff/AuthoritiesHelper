@@ -103,6 +103,34 @@ async function bundleScript(entry, define) {
 
 const inline = (code) => code.replaceAll("</script", "<\\/script");
 
+/** The engine as a page carries it: the grammar corpus compiled into it (legal-structure/data/grammar-corpus.json)
+ *  says where each grammar came from, naming other repositories' files, in "provenance" and "description" notes the
+ *  engine never reads. Each note's text is blanked in place, its length kept, so the corpus parses to the same
+ *  grammars and the engine is otherwise byte for byte the one built. */
+export function withoutGrammarNotes(engine) {
+  const text = engine.toString("latin1"), out = Buffer.from(engine);
+  for (let marker = text.indexOf('"format": "legal-grammar-corpus:v1"'); marker >= 0;
+    marker = text.indexOf('"format": "legal-grammar-corpus:v1"', marker + 1)) {
+    const start = text.lastIndexOf("{", marker);
+    let end = start, depth = 0, quoted = false;
+    for (; end < text.length; end += 1) {
+      const char = text[end];
+      if (quoted) { if (char === "\\") end += 1; else if (char === '"') quoted = false; }
+      else if (char === '"') quoted = true;
+      else if (char === "{" || char === "[") depth += 1;
+      else if ((char === "}" || char === "]") && --depth === 0) break;
+    }
+    const corpus = text.slice(start, end + 1);
+    const blanked = corpus.replace(/("(?:provenance|description)":\s*")((?:[^"\\]|\\.)*)"/gu,
+      (_, key, note) => `${key}${" ".repeat(note.length)}"`);
+    const notes = (value) => JSON.stringify(JSON.parse(Buffer.from(value, "latin1").toString("utf8"), (key, item) =>
+      key === "provenance" || key === "description" ? undefined : item));
+    assert.equal(notes(blanked), notes(corpus), "Blanking the grammar corpus's notes changed its grammars");
+    out.write(blanked, start, "latin1");
+  }
+  return out;
+}
+
 /** `app`: another app made of this page (ALR): its `name`, its page `title`, the `entry` that starts it in
  *  place of authoritiesMain.tsx, esbuild `runtimePlugins` that give its runtime its operations, and
  *  `localStores` when its runtime reads local legal data files the page gives it, and `ukCaseLaw` when it reaches
@@ -117,7 +145,7 @@ export async function buildAuthoritiesHtml(output, { release = false, app } = {}
   if (!existsSync(artifact)) throw new Error(`Browser engine missing. Run node AuthoritiesHelper/modern/html/build-engine.mjs${release ? " --release" : ""} first.`);
   if (release && stamp(built("debug")) > stamp(artifact))
     throw new Error("The optimized engine is older than the engine's latest build. Run node AuthoritiesHelper/modern/html/build-engine.mjs --release first.");
-  const engine = readFileSync(artifact);
+  const engine = withoutGrammarNotes(readFileSync(artifact));
   // The build's own code: a change to how it builds reruns its steps.
   const builder = [import.meta.filename, path.join(here, "runtime-bundle.mjs"),
     path.join(here, "../scripts/authorities-package/bundle.mjs")];
