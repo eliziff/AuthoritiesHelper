@@ -101,6 +101,11 @@ jobs:
           cache: npm
           cache-dependency-path: modern/package-lock.json
       - run: npm ci
+      - name: Install Beaver's locked dependencies and generate its shared runtime, which Lite imports
+        working-directory: beaver
+        run: |
+          npm ci --ignore-scripts
+          npm run build:shared
       - name: Restore OCR model/runtime inputs
         run: node authorities-lite/prepare.mjs
       - name: Compile the parser engine

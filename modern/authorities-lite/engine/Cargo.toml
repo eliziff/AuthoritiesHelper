@@ -11,3 +11,9 @@ crate-type = ["cdylib"]
 legal-structure = { path = "../../../../legal-structure", features = ["provider-text", "citator", "document-query"] }
 serde_json = "1.0"
 
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true
