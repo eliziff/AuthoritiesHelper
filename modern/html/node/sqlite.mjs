@@ -4,6 +4,8 @@
 // mountFile() names the file by the path Beaver's code opens; the path exists in the runtime's
 // filesystem as an empty placeholder that stats as the file (its size and modification time), so
 // existsSync and statSync see it as a lookup checking which database it reads expects.
+// A program that serves the page may serve a database too: `{ url, size, lastModified }` in place of the
+// file, read in place by ranged requests to that address (synchronous ones, which Workers may make).
 import sqlite3InitModule from "@sqlite.org/sqlite-wasm";
 import wasmBinary from "@sqlite.org/sqlite-wasm/sqlite3.wasm";
 import path from "path";
@@ -22,7 +24,8 @@ let sqlite3 = null;
 export const ready = sqlite3InitModule({ wasmBinary, locateFile: (file) => file, print: () => {}, printErr: () => {} })
   .then((module) => { sqlite3 = module; installVfs(module); });
 
-/** Makes `file` the database at `filename`; null forgets it. */
+/** Makes `file` (a Blob, or a served file's `{ url, size, lastModified }`) the database at `filename`;
+ *  null forgets it. */
 export function mountFile(filename, file) {
   if (!file) { files.delete(filename); fs.rmSync(filename, { force: true }); return; }
   files.set(filename, file);
@@ -37,10 +40,22 @@ export function mountFile(filename, file) {
 function readBlock(entry, index) {
   let block = entry.blocks.get(index);
   if (block) { entry.blocks.delete(index); entry.blocks.set(index, block); return block; }
-  block = new Uint8Array(new FileReaderSync().readAsArrayBuffer(entry.blob.slice(index * BLOCK, (index + 1) * BLOCK)));
+  block = entry.blob.url ? readServed(entry.blob, index * BLOCK, Math.min((index + 1) * BLOCK, entry.blob.size))
+    : new Uint8Array(new FileReaderSync().readAsArrayBuffer(entry.blob.slice(index * BLOCK, (index + 1) * BLOCK)));
   entry.blocks.set(index, block);
   if (entry.blocks.size > BLOCKS) entry.blocks.delete(entry.blocks.keys().next().value);
   return block;
+}
+
+function readServed({ url }, start, end) {
+  if (start >= end) return new Uint8Array(0);
+  const request = new XMLHttpRequest();
+  request.open("GET", url, false);
+  request.responseType = "arraybuffer";
+  request.setRequestHeader("Range", `bytes=${start}-${end - 1}`);
+  request.send();
+  if (request.status !== 206) throw new Error(`${url} answered ${request.status} to a ranged read`);
+  return new Uint8Array(request.response);
 }
 
 function installVfs({ capi, wasm, vfs }) {
