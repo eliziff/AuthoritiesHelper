@@ -133,7 +133,7 @@ export function withoutGrammarNotes(engine) {
   return out;
 }
 
-/** `app`: another app made of this page (ALR): its `name`, its page `title`, the `entry` that starts it in
+/** `app`: another app made of this page (ALR): its `name`, its page `title` and `description`, the `entry` that starts it in
  *  place of authoritiesMain.tsx, esbuild `runtimePlugins` that give its runtime its operations, and
  *  `localStores` when its runtime reads local legal data files the page gives it, and `ukCaseLaw` when it reaches
  *  the National Archives for UK decisions (runtime-bundle.mjs). `network: false` gives it a runtime that reaches nothing
@@ -215,6 +215,7 @@ export async function buildAuthoritiesHtml(output, { release = false, app } = {}
   const bridge = bridgeHead + JSON.stringify(payload) + bridgeTail[0];
   // Drop the build's external tags; the page carries everything inline.
   const page = html.replace(/<title>[^<]*<\/title>/u, () => `<title>${app?.title ?? "Authorities"}</title>`)
+    .replace(/(<meta name="description" content=")[^"]*"/u, (tag, head) => app?.description ? `${head}${app.description}"` : tag)
     .replace(/<script\b[^>]*\bsrc=[^>]*><\/script>\s*/gu, "")
     .replace(/<link\b[^>]*\brel="(?:stylesheet|modulepreload|icon)"[^>]*>\s*/gu, "")
     .replace("</head>", () => `<style>${css.replaceAll("</style", "<\\/style")}</style>\n` +
