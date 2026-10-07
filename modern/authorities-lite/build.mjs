@@ -1,4 +1,4 @@
-import fs from 'node:fs';import path from 'node:path';import {build} from 'esbuild';import crypto from 'node:crypto';import {execFileSync} from 'node:child_process';
+import fs from 'node:fs';import path from 'node:path';import {build} from 'esbuild';import crypto from 'node:crypto';import {execFileSync} from 'node:child_process';import {withContentSecurityPolicy} from '../html/content-policy.mjs';import {DEFAULT_SERVICE_URL} from '../provider-pdf-service.mjs';
 const root=path.resolve(import.meta.dirname,'..'),folder=path.join(root,'authorities-lite'),out=path.join(root,'dist','authorities-lite');
 fs.mkdirSync(out,{recursive:true});fs.mkdirSync(path.join(folder,'vendor'),{recursive:true});
 const beaver=path.resolve(root,'../..');
@@ -15,7 +15,8 @@ const styles=read('authorities-lite/vendor/styles.css').replaceAll('</style','<\
 const app=await build({entryPoints:[path.join(folder,'app.jsx')],bundle:true,format:'esm',platform:'browser',target:'chrome120',minify:true,write:false,legalComments:'inline',jsx:'automatic',metafile:true,alias:{react:path.join(root,'node_modules/react'),'react-dom':path.join(root,'node_modules/react-dom'),'pdf-lib':path.join(root,'node_modules/pdf-lib')},define:{'process.env.NODE_ENV':'"production"'}});
 const inline=app.outputFiles[0].text.replaceAll('</script','<\\/script');
 const bundle=`<script>globalThis.AUTHORITIES_ASSETS=${JSON.stringify(assets)}</script><script type="module">${inline}</script>`;
-const html=read('authorities-lite/index.html').replace('<!--STYLES-->',()=>styles).replace('<!--BUNDLE-->',()=>bundle);
+// The page reaches A2AJ and the publisher PDF service alone (client.mjs).
+const html=withContentSecurityPolicy(read('authorities-lite/index.html').replace('<!--STYLES-->',()=>styles).replace('<!--BUNDLE-->',()=>bundle),['https://api.a2aj.ca',new URL(DEFAULT_SERVICE_URL).origin]);
 fs.writeFileSync(path.join(out,'Authorities-lite.html'),html);
 const worker=await build({metafile:true,entryPoints:[path.join(folder,'worker.mjs')],bundle:true,format:'esm',platform:'browser',target:'es2022',outfile:path.join(out,'worker.mjs'),legalComments:'inline'});
 fs.copyFileSync(path.join(folder,'wrangler.jsonc'),path.join(out,'wrangler.jsonc'));

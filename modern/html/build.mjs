@@ -14,6 +14,8 @@ import { pathToFileURL } from "node:url";
 import { gzipSync } from "node:zlib";
 import { bundleRuntime } from "./runtime-bundle.mjs";
 import { cached, inputStamp } from "./build-cache.mjs";
+import { withContentSecurityPolicy } from "./content-policy.mjs";
+import { DEFAULT_SERVICE_URL } from "../provider-pdf-service.mjs";
 
 const here = import.meta.dirname, repo = path.resolve(here, "../../.."), frontend = path.join(repo, "frontend");
 const backend = path.join(repo, "backend");
@@ -135,7 +137,8 @@ export function withoutGrammarNotes(engine) {
  *  place of authoritiesMain.tsx, esbuild `runtimePlugins` that give its runtime its operations, and
  *  `localStores` when its runtime reads local legal data files the page gives it, and `ukCaseLaw` when it reaches
  *  the National Archives for UK decisions (runtime-bundle.mjs). `network: false` gives it a runtime that reaches nothing
- *  off the computer and holds no code that would (runtime-bundle.mjs). */
+ *  off the computer and holds no code that would (runtime-bundle.mjs). `connectSources`: the only hosts the page and its
+ *  Workers may connect to (content-policy.mjs), in place of those its runtime reaches (undici.mjs); [] for none. */
 export async function buildAuthoritiesHtml(output, { release = false, app } = {}) {
   // A dev page takes the engine built last, fast to compile; a release page only the optimized one,
   // and never one older than the engine's latest changes.
@@ -218,9 +221,13 @@ export async function buildAuthoritiesHtml(output, { release = false, app } = {}
       `<script>${inline(bridge)}</script>\n</head>`)
     .replace("</body>", () => `<script type="module">${inline(script)}</script>\n</body>`);
   assert(!/\b(?:src|href)="\/(?:assets|src)\//u.test(page), "Authorities.html still references a build file");
+  // The hosts the runtime reaches (undici.mjs), unless the app names its own.
+  const connectSources = app?.connectSources ?? ["https://api.a2aj.ca", "https://laws-lois.justice.gc.ca",
+    ...app?.ukCaseLaw ? ["https://caselaw.nationalarchives.gov.uk"] : [], new URL(DEFAULT_SERVICE_URL).origin];
+  const secured = withContentSecurityPolicy(page, connectSources);
   mkdirSync(path.dirname(output), { recursive: true });
-  writeFileSync(output, page);
-  return { bytes: Buffer.byteLength(page), runtimeModules: runtime.modules };
+  writeFileSync(output, secured);
+  return { bytes: Buffer.byteLength(secured), runtimeModules: runtime.modules };
 }
 
 if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
