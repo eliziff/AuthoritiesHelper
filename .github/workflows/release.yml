@@ -47,9 +47,8 @@ jobs:
         working-directory: beaver
         run: |
           npm ci --ignore-scripts
-          npm ci --ignore-scripts --prefix backend
-          npm ci --ignore-scripts --prefix frontend
           npm ci --ignore-scripts --prefix AuthoritiesHelper/modern
+          npm run build:shared
       - name: Restore the bundled browser OCR model and runtime
         working-directory: beaver/AuthoritiesHelper/modern
         run: node browser-ocr/package.mjs
