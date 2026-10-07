@@ -11,6 +11,8 @@ import { verifyIdentity } from '../../../shared/folder-pdf-match.mjs';
 import { ANNOTATION_SCHEMA, decodeAnnotationSet } from '../../../shared/pdf-annotations.mjs';
 import { writeAuthorityAnnotations } from '../../../shared/pdf-annotation-writer.mjs';
 import { reporterMarginLabels, resolvePdfPagination } from '../../../shared/pdf-page-binding.mjs';
+import { removeActiveContent } from '../../../shared/runtime/pdfAssembly.mjs';
+import { dropUnreachable } from '../../../shared/runtime/authoritiesBook.mjs';
 
 export async function hash(bytes) { return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), b => b.toString(16).padStart(2, '0')).join(''); }
 export const normalize = s => String(s).normalize('NFKC').replace(/\s+/g, ' ').trim();
@@ -156,7 +158,10 @@ export async function exportPdf(document){
   let data=document.data;
   if(document.ocrPages.some(p=>p.lines.length))data=await createSearchablePdf({pdfBytes:data,pages:document.ocrPages});
   const output=await PDFDocument.load(data,{updateMetadata:false});
+  // The source's own code (scripts, launches, form submissions) stays out of the highlighted copy.
+  removeActiveContent(pdfLib,output);
   const set=decodeAnnotationSet({schemaVersion:ANNOTATION_SCHEMA,sourceSha256:document.sourceSha256,marks:document.marks});
   writeAuthorityAnnotations(pdfLib,output,set,'authorities-html',{author:null,comments:false});
+  dropUnreachable(pdfLib,output);
   return output.save({updateFieldAppearances:false});
 }
