@@ -25,10 +25,22 @@ export const ready = sqlite3InitModule({ wasmBinary, locateFile: (file) => file,
   .then((module) => { sqlite3 = module; installVfs(module); });
 
 /** Makes `file` (a Blob, or a served file's `{ url, size, lastModified }`) the database at `filename`;
- *  null forgets it. */
+ *  null forgets it. A file that is no database, or one that defines views (which the stores this page reads never
+ *  do, and whose queries could run without end), is refused. */
 export function mountFile(filename, file) {
   if (!file) { files.delete(filename); fs.rmSync(filename, { force: true }); return; }
+  const previous = files.get(filename);
   files.set(filename, file);
+  let reason = "";
+  try {
+    const database = new sqlite3.oo1.DB({ filename, flags: "r", vfs: VFS });
+    try { if (database.selectValue("SELECT 1 FROM sqlite_master WHERE type = 'view' LIMIT 1")) reason = ": it defines views"; }
+    finally { database.close(); }
+  } catch { reason = ": it is not a SQLite database, or it is damaged"; }
+  if (reason) {
+    if (previous) files.set(filename, previous); else files.delete(filename);
+    throw new Error(`${file.name || path.basename(filename)} cannot be used${reason}.`);
+  }
   fs.mkdirSync(path.dirname(filename), { recursive: true });
   fs.writeFileSync(filename, "");
   // memfs (pinned) keeps a file's size and time on its node; nothing reads the placeholder's bytes.
@@ -140,6 +152,8 @@ export class DatabaseSync {
     if (!sqlite3) throw new Error("SQLite is still loading.");
     if (!files.has(String(filename))) throw new Error(`${filename} is not a file this page was given.`);
     this.#database = new sqlite3.oo1.DB({ filename: String(filename), flags: "r", vfs: VFS });
+    // The file's own schema runs no function that is not harmless.
+    this.#database.exec("PRAGMA trusted_schema = OFF");
   }
   exec(sql) { this.#database.exec(sql); }
   prepare(sql) {
