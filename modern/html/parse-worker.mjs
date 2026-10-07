@@ -32,7 +32,7 @@ self.onmessage = async ({ data: { id, module, bytes, request, cache } }) => {
       return { instance, close: wasi.close,
         panic: () => stderr.split(/panicked at [^\n]*\n/u).at(-1).trim().split("\n")[0] ?? "" };
     });
-    warmStructureAddon(addon);
+    warmStructureAddon(addon, { partly: true });
     return;
   }
   volume.reset();
