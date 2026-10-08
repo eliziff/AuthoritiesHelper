@@ -49,14 +49,23 @@ export function mountFile(filename, file) {
   node.mtime = new Date(file.lastModified);
 }
 
+// A read that carries on from the last block read reads ahead, twice as far each time it carries on, up to this many
+// blocks in one call: a document's overflow pages run on, and each call to the file costs far more than its bytes.
+const AHEAD = 16;
 function readBlock(entry, index) {
   let block = entry.blocks.get(index);
   if (block) { entry.blocks.delete(index); entry.blocks.set(index, block); return block; }
-  block = entry.blob.url ? readServed(entry.blob, index * BLOCK, Math.min((index + 1) * BLOCK, entry.blob.size))
-    : new Uint8Array(new FileReaderSync().readAsArrayBuffer(entry.blob.slice(index * BLOCK, (index + 1) * BLOCK)));
-  entry.blocks.set(index, block);
-  if (entry.blocks.size > BLOCKS) entry.blocks.delete(entry.blocks.keys().next().value);
-  return block;
+  entry.run = entry.last === index - 1 ? Math.min((entry.run ?? 1) * 2, AHEAD) : 1;
+  const start = index * BLOCK, end = Math.min((index + entry.run) * BLOCK, entry.blob.size);
+  const bytes = entry.blob.url ? readServed(entry.blob, start, end)
+    : new Uint8Array(new FileReaderSync().readAsArrayBuffer(entry.blob.slice(start, end)));
+  const count = Math.max(1, Math.ceil(bytes.length / BLOCK));
+  for (let k = 0; k < count; k++) {
+    entry.blocks.set(index + k, bytes.subarray(k * BLOCK, (k + 1) * BLOCK));
+    if (entry.blocks.size > BLOCKS) entry.blocks.delete(entry.blocks.keys().next().value);
+  }
+  entry.last = index + count - 1;
+  return entry.blocks.get(index);
 }
 
 function readServed({ url }, start, end) {
