@@ -67,13 +67,21 @@ const active = new Map();
 // under way, an engine grown past the limit is started afresh and readied again at once; the documents
 // it held are read again from the parse cache when next asked for.
 const ENGINE_MEMORY_LIMIT = 256 * 1024 * 1024;
+// An app asks for its next operation as one ends (a check, then its workbook), and the documents the engine holds
+// serve both; the engine is started afresh only once nothing has been asked for a while.
+const RECYCLE_AFTER_IDLE_MS = 2000;
+let recycleTimer;
 function recycleWhenIdle() {
-  const addon = structureNative();
-  if (active.size || addon.memoryBytes() <= ENGINE_MEMORY_LIMIT) return;
-  addon.recycle();
-  warmStructureAddon(addon);
+  clearTimeout(recycleTimer);
+  recycleTimer = setTimeout(() => {
+    const addon = structureNative();
+    if (active.size || addon.memoryBytes() <= ENGINE_MEMORY_LIMIT) return;
+    addon.recycle();
+    warmStructureAddon(addon);
+  }, RECYCLE_AFTER_IDLE_MS);
 }
 async function handle({ id, operation, input }) {
+  clearTimeout(recycleTimer);
   const controller = new AbortController();
   active.set(id, controller);
   try {
