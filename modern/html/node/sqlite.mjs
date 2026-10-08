@@ -17,6 +17,9 @@ const VFS = "picked-file";
 const BLOCK = 64 * 1024, BLOCKS = 512;
 const files = new Map(); // path -> Blob
 const open = new Map(); // sqlite3_file pointer -> { blob, blocks }
+// A file's blocks outlive the connection that read them: each lookup opens the database afresh, and every one reads
+// its B-tree's root and inner pages again. A file chosen anew is another Blob, with blocks of its own.
+const read = new WeakMap(); // Blob or served file -> { blob, blocks }
 let sqlite3 = null;
 
 /** Resolves once SQLite is compiled; DatabaseSync needs it. Its WebAssembly is part of the runtime: no
@@ -124,7 +127,8 @@ function installVfs({ capi, wasm, vfs }) {
     xOpen(pVfs, zName, pFile, flags, pOutFlags) {
       const blob = zName ? files.get(wasm.cstrToJs(zName)) : null;
       if (!blob) return capi.SQLITE_CANTOPEN;
-      open.set(Number(pFile), { blob, blocks: new Map() });
+      if (!read.has(blob)) read.set(blob, { blob, blocks: new Map() });
+      open.set(Number(pFile), read.get(blob));
       const file = new capi.sqlite3_file(pFile);
       file.$pMethods = io.pointer;
       file.dispose();
