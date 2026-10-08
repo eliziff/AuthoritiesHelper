@@ -64,7 +64,7 @@ async function loadEngine(base64) {
 let operations;
 const active = new Map();
 // The engine's memory grows to the largest work it has done and never shrinks. Once no operation is
-// under way, an engine grown past the limit is started afresh and readied again at once; the documents
+// under way, an engine grown past the limit is started afresh and readied again in part; the documents
 // it held are read again from the parse cache when next asked for.
 const ENGINE_MEMORY_LIMIT = 256 * 1024 * 1024;
 // An app asks for its next operation as one ends (a check, then its workbook), and the documents the engine holds
@@ -77,7 +77,8 @@ function recycleWhenIdle() {
     const addon = structureNative();
     if (active.size || addon.memoryBytes() <= ENGINE_MEMORY_LIMIT) return;
     addon.recycle();
-    warmStructureAddon(addon);
+    // Readied in part: readying every grammar holds this thread for seconds, and the user may ask for work at any moment.
+    warmStructureAddon(addon, { partly: true });
   }, RECYCLE_AFTER_IDLE_MS);
 }
 async function handle({ id, operation, input }) {
