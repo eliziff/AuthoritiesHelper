@@ -5,9 +5,12 @@
 import { Volume, createFsFromVolume } from "memfs";
 import { createStructureAddon, warmStructureAddon } from "./structure-addon.mjs";
 import { createWasi } from "./wasi.mjs";
+import { warmupPdf } from "./parse-warmup.mjs";
 
 const volume = new Volume(), fs = createFsFromVolume(volume);
 let engine, addon, memory;
+// The parser's readying, which a job waits for rather than run beside it.
+let warming = Promise.resolve();
 
 function files(directory) {
   if (!fs.existsSync(directory)) return [];
@@ -33,8 +36,18 @@ self.onmessage = async ({ data: { id, module, bytes, request, cache } }) => {
         panic: () => stderr.split(/panicked at [^\n]*\n/u).at(-1).trim().split("\n")[0] ?? "" };
     });
     warmStructureAddon(addon, { partly: true });
+    // Ready what a PDF's derivation builds on first use before the first PDF arrives: the cues its layout
+    // reads, then everything else one small PDF reaches. Its cache files are dropped.
+    warming = (async () => {
+      try {
+        addon.citationEngineCall("warm", JSON.stringify({ part: "layout" }));
+        await addon.derivePdfDocument(warmupPdf(), {});
+      } catch {}
+      volume.reset();
+    })();
     return;
   }
+  await warming;
   volume.reset();
   fs.mkdirSync("/tmp", { recursive: true });
   const given = new Map(cache.map(([path, content]) => [path, content.byteLength]));
