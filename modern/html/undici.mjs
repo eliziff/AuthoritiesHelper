@@ -36,12 +36,29 @@ async function directAnswer(url, init) {
 }
 const PUBLISHER_HOSTS = new Set([...DECISIA_HOSTS, "www.bccourts.ca", "bccourts.ca", ...LEGISLATION_PDF_HOSTS]);
 
+// A PDF fetched is shared by every request for it while it is fetched and for a minute after: a check reads a decision
+// once for each of its quotations, at once or in turn.
+const SHARED_MS = 60_000;
+const shared = new Map();
 async function publisherPdf(url, init) {
   if ((init.method ?? "GET").toUpperCase() !== "GET")
     throw new Error(`${url.hostname} is only read, never written to.`);
+  // The service sends a publisher's PDF, never its pages: a request for a page (a decision's index, read for its PDF
+  // link) is refused at once rather than answered with the whole PDF.
+  const accept = new Headers(init.headers).get("accept");
+  if (accept && !/pdf|\*\/\*/u.test(accept)) throw new Error(`${url.hostname} pages cannot be read from this page.`);
   // A PDF the page verified before, in this visit or an earlier one, is not fetched again.
   const kept = await keptPdf(url.href);
   if (kept) return new Response(kept, { headers: { "content-type": "application/pdf" } });
+  let fetched = shared.get(url.href);
+  if (!fetched) {
+    shared.set(url.href, fetched = servicePdf(url, init));
+    fetched.then(() => setTimeout(() => shared.delete(url.href), SHARED_MS), () => shared.delete(url.href));
+  }
+  const { bytes, status, headers } = await fetched;
+  return new Response(bytes.slice(), { status, headers });
+}
+async function servicePdf(url, init) {
   const service = new URL("pdf", DEFAULT_SERVICE_URL);
   service.searchParams.set("source", url.href);
   const request = { signal: init.signal, credentials: "omit", referrerPolicy: "no-referrer" };
@@ -62,7 +79,7 @@ async function publisherPdf(url, init) {
   }
   const bytes = new Uint8Array(await response.arrayBuffer());
   if (response.headers.get("content-type")?.startsWith("application/pdf")) await keepPdf(url.href, bytes);
-  return new Response(bytes, { status: response.status, headers: response.headers });
+  return { bytes, status: response.status, headers: response.headers };
 }
 
 export class Agent {
