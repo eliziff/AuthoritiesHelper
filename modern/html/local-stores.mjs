@@ -7,7 +7,7 @@ import { useA2AJCorpus } from "../../../backend/src/lib/legalSources/a2aj";
 import { journalLegalSourceProvider } from "../../../backend/src/lib/legalSources/journal";
 import { keepLocal } from "./undici.mjs";
 
-const A2AJ = "/stores/a2aj/a2aj.sqlite", JOURNALS = "/stores/journals/public_endpoint.db";
+const A2AJ = "/stores/a2aj/a2aj.sqlite";
 const JOURNALS_SEARCH = "/stores/journals/public_endpoint-search.sqlite";
 const journals = { database: null, search: null, at: null };
 let a2ajMounted = false;
@@ -33,24 +33,27 @@ export async function mountStore({ store, file, localOnly }) {
   journals[store === "journals-search" ? "search" : "database"] = file;
   if (journals.at) mountFile(journals.at, null);
   mountFile(JOURNALS_SEARCH, journals.search);
-  // The provider searches with the index only when it was built from the database it reads: the path,
-  // size and modification time the index records. The database is read at that path, and stats as its file.
-  const recorded = journals.database && journals.search ? indexedSource() : "";
-  journals.at = journals.database ? path.resolve(recorded || JOURNALS) : null;
+  // The database is read only with the index built from it: without one, each search reads the whole database, which
+  // takes minutes in a page. It is read at the path the index records, and stats as its file, as the provider checks.
+  const recorded = journals.database && journals.search ? indexedSource(journals.database) : "";
+  journals.at = recorded ? path.resolve(recorded) : null;
   if (journals.at) {
     mountFile(journals.at, journals.database);
-    process.env.MIKE_PUBLIC_ENDPOINT_DB = recorded || JOURNALS;
+    process.env.MIKE_PUBLIC_ENDPOINT_DB = recorded;
   } else delete process.env.MIKE_PUBLIC_ENDPOINT_DB;
   if (journals.search) process.env.MIKE_PUBLIC_ENDPOINT_FTS_DB = JOURNALS_SEARCH;
   else delete process.env.MIKE_PUBLIC_ENDPOINT_FTS_DB;
   return { data: null };
 }
 
-function indexedSource() {
+/** The path the index records for the database it was built from, when `database` is that file (its size and
+ *  modification time); otherwise "". */
+function indexedSource(database) {
   let index;
   try {
     index = new DatabaseSync(JOURNALS_SEARCH);
-    const value = index.prepare("SELECT value FROM meta WHERE key = 'source_path'").get()?.value;
-    return typeof value === "string" ? value : "";
+    const meta = Object.fromEntries(index.prepare("SELECT key, value FROM meta").all().map(({ key, value }) => [key, value]));
+    return typeof meta.source_path === "string" && meta.source_size === String(database.size)
+      && meta.source_mtime_ms === String(Math.trunc(database.lastModified)) ? meta.source_path : "";
   } catch { return ""; } finally { index?.close(); }
 }
