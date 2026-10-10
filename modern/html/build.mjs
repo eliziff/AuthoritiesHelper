@@ -36,7 +36,7 @@ const packageManifests = files => [...new Set(files.flatMap(file => {
   return index < 0 ? [] : [path.join(parts.slice(0, index + (parts[index + 1].startsWith('@') ? 3 : 2)).join('/'), 'package.json')];
 }))];
 
-async function buildFrontend(release, entry) {
+async function buildFrontend(release, entry, store) {
   const require = createRequire(path.join(frontend, "package.json"));
   const { build, loadConfigFromFile } = await import(pathToFileURL(require.resolve("vite")).href);
   const configFile = path.join(frontend, 'vite.config.ts');
@@ -53,6 +53,8 @@ async function buildFrontend(release, entry) {
   try {
   const { codeSplitting: _groups, ...output } = loaded.config.build?.rolldownOptions?.output ?? {};
   const result = await build({ ...loaded.config, root: frontend, configFile: false, logLevel: "warn",
+    // The name the page keeps its drafts and settings under (pageStore.ts).
+    define: { ...loaded.config.define, ...store && { "import.meta.env.VITE_PAGE_STORE": JSON.stringify(store) } },
     plugins: [...(loaded.config.plugins ?? []), {
       name: 'authorities-build-inputs',
       configResolved(resolved) { config = resolved; },
@@ -134,7 +136,8 @@ export function withoutGrammarNotes(engine) {
 }
 
 /** `app`: another app made of this page (ALR): its `name`, its page `title` and `description`, the `entry` that starts it in
- *  place of authoritiesMain.tsx, esbuild `runtimePlugins` that give its runtime its operations, and
+ *  place of authoritiesMain.tsx, the `store` it keeps its drafts and settings under in place of Authorities' (pages
+ *  opened from files share one browser store), esbuild `runtimePlugins` that give its runtime its operations, and
  *  `localStores` when its runtime reads local legal data files the page gives it, and `ukCaseLaw` when it reaches
  *  the National Archives for UK decisions (runtime-bundle.mjs). `network: false` gives it a runtime that reaches nothing
  *  off the computer and holds no code that would (runtime-bundle.mjs). `connectSources`: the only hosts the page and its
@@ -170,8 +173,8 @@ export async function buildAuthoritiesHtml(output, { release = false, app } = {}
           path.join(backend, 'package.json'), path.join(repo, 'shared/package.json'), ...builder] };
     }, backend),
     cached(cacheDir, `frontend-${release ? "release" : "development"}${app ? `-${app.name}` : ""}`,
-      sha256(process.version + viteEnvironment + buildFrontend.toString() + bundledFiles.toString() + packageManifests.toString() + (app?.entry ?? "")),
-      () => buildFrontend(release, app?.entry), frontend),
+      sha256(process.version + viteEnvironment + buildFrontend.toString() + bundledFiles.toString() + packageManifests.toString() + (app?.entry ?? "") + (app?.store ?? "")),
+      () => buildFrontend(release, app?.entry, app?.store), frontend),
     browserOcrAssets(),
     bundleScript("raster-worker.mjs"),
   ]);
