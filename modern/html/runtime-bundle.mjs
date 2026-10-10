@@ -32,20 +32,32 @@ const browserRuntime = (substitutes) => ({
   },
 });
 
+// The works pack left out: its module is an empty pack.
+const withoutWorkExtents = {
+  name: "without-work-extents",
+  setup(build) {
+    build.onResolve({ filter: /work-extents-data\.mjs$/u }, () => ({ path: "work-extents-data", namespace: "without-work-extents" }));
+    build.onLoad({ filter: /.*/u, namespace: "without-work-extents" }, () => ({ contents: 'export default "";', loader: "js" }));
+  },
+};
+
 // `plugins` run first: a product built on this runtime (ALR) supplies its own operations through them.
 // `localStores`: the runtime reads local legal data files the page gives it (node/sqlite.mjs, with SQLite's
 // WebAssembly build, and the "mount-store" operation in runtime-worker.mjs); without it, neither is part of it.
 // `ukCaseLaw`: the runtime reaches the National Archives' Find Case Law for UK decisions (undici.mjs).
 // `network: false`: the runtime reaches nothing off the computer, not A2AJ, a court publisher or the publisher PDF
 // service (undici.mjs); its sources are the local stores and the files the person attaches.
-export async function bundleRuntime({ plugins = [], localStores = false, ukCaseLaw = false, network = true } = {}) {
+// `workExtents: false`: the runtime holds no works pack (shared/work-extents-data.mjs, 2.6 MB, 0.7 MB gzipped), and the citation
+// engine's locator rules know no work's extent.
+export async function bundleRuntime({ plugins = [], localStores = false, ukCaseLaw = false, network = true,
+  workExtents = true } = {}) {
   const { build } = createRequire(path.join(backend, "package.json"))("esbuild");
   const options = {
     absWorkingDir: backend, bundle: true, write: false,
     platform: "browser", format: "iife", target: "es2022", minify: true, legalComments: "none",
     mainFields: ["browser", "module", "main"], conditions: ["worker", "browser"],
     inject: [own("node/globals.mjs")], logLevel: "warning",
-    plugins: [...plugins, sharedContractSource, localOnly,
+    plugins: [...plugins, sharedContractSource, localOnly, ...workExtents ? [] : [withoutWorkExtents],
       browserRuntime(localStores ? { ...SUBSTITUTES, sqlite: own("node/sqlite.mjs") } : SUBSTITUTES)],
     ...localStores ? { loader: { ".wasm": "binary" } } : {},
   };

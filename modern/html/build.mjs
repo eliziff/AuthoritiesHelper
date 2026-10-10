@@ -140,7 +140,8 @@ export function withoutGrammarNotes(engine) {
  *  opened from files share one browser store), esbuild `runtimePlugins` that give its runtime its operations, and
  *  `localStores` when its runtime reads local legal data files the page gives it, and `ukCaseLaw` when it reaches
  *  the National Archives for UK decisions (runtime-bundle.mjs). `network: false` gives it a runtime that reaches nothing
- *  off the computer and holds no code that would (runtime-bundle.mjs). `connectSources`: the only hosts the page and its
+ *  off the computer and holds no code that would (runtime-bundle.mjs). `workExtents: false` leaves the works pack
+ *  out of its runtime (runtime-bundle.mjs). `connectSources`: the only hosts the page and its
  *  Workers may connect to (content-policy.mjs), in place of those its runtime reaches (undici.mjs); [] for none. */
 export async function buildAuthoritiesHtml(output, { release = false, app } = {}) {
   // A dev page takes the engine built last, fast to compile; a release page only the optimized one,
@@ -160,10 +161,11 @@ export async function buildAuthoritiesHtml(output, { release = false, app } = {}
   const [runtime, { html, script, css }, assets, rasterWorker] = await Promise.all([
     // An app's runtime is its own checkout's: two copies of one app (a checkout and a packaging copy) share a name.
     cached(cacheDir, app ? `runtime-${app.name}` : "runtime",
-      [app?.entry, app?.localStores && "local-stores", app?.ukCaseLaw && "uk-case-law", app?.network === false && "no-network"]
+      [app?.entry, app?.localStores && "local-stores", app?.ukCaseLaw && "uk-case-law", app?.network === false && "no-network",
+        app?.workExtents === false && "no-work-extents"]
         .filter(Boolean).join(" "), async () => {
       const { code, inputs } = await bundleRuntime({ plugins: app?.runtimePlugins ?? [], localStores: !!app?.localStores,
-        ukCaseLaw: !!app?.ukCaseLaw, network: app?.network !== false });
+        ukCaseLaw: !!app?.ukCaseLaw, network: app?.network !== false, workExtents: app?.workExtents !== false });
       const files = bundledFiles(inputs, backend);
       // A contract's TypeScript source, once written, replaces the JavaScript the runtime bundled.
       const contracts = files.flatMap((file) => /[\\/]shared[\\/]runtime[\\/][^\\/]+\.mjs$/u.test(file)
