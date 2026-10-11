@@ -19,6 +19,13 @@ const env = Object.fromEntries(Object.entries(process.env).filter(([key]) =>
   !["CARGO_TARGET_DIR", "CARGO_BUILD_TARGET", "CARGO_BUILD_RUSTFLAGS", "CARGO_INCREMENTAL",
     "RUSTFLAGS", "CARGO_ENCODED_RUSTFLAGS", "RUSTC_WRAPPER", "RUSTC_WORKSPACE_WRAPPER"].includes(key)));
 env.CARGO_TARGET_DIR = targetDir;
+// The engine reads the local A2AJ store with SQLite, whose C compiles with wasi-sdk's clang.
+if (!lite) {
+  const sdk = process.env.WASI_SDK_PATH;
+  if (!sdk) throw new Error("Set WASI_SDK_PATH to a wasi-sdk (github.com/WebAssembly/wasi-sdk/releases): the engine compiles SQLite with it");
+  Object.assign(env, { CC_wasm32_wasip1: path.join(sdk, "bin/clang"), AR_wasm32_wasip1: path.join(sdk, "bin/llvm-ar"),
+    CFLAGS_wasm32_wasip1: `--sysroot=${path.join(sdk, "share/wasi-sysroot")}` });
+}
 env.CARGO_ENCODED_RUSTFLAGS = [[homedir(), "/home"],
   [process.env.RUSTUP_HOME ?? path.join(homedir(), ".rustup"), "/rustup"],
   [process.env.CARGO_HOME ?? path.join(homedir(), ".cargo"), "/cargo"], [repo, "/beaver"]]

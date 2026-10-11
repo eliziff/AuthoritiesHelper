@@ -3,4 +3,6 @@ const unavailable = (what) => () => { throw new Error(`${what} is not available 
 export const execFile = unavailable("Running local programs");
 export const spawn = execFile;
 export class DatabaseSync { constructor() { unavailable("Local legal data")(); } }
-export default { execFile, spawn, DatabaseSync };
+/** No local data file is mounted for the engine to read. */
+export const mounted = null;
+export default { execFile, spawn, DatabaseSync, mounted };

@@ -16,8 +16,11 @@ class WasiExit extends Error {
   constructor(code) { super(`WASI exit ${code}`); this.code = code; }
 }
 
-/** @param {import("node:fs")} fs a synchronous Node-style filesystem (memfs) */
-export function createWasi(fs, { stdout = console.log, stderr = console.error, env = {} } = {}) {
+/** @param {import("node:fs")} fs a synchronous Node-style filesystem (memfs)
+ *  @param {{ size(path: string): number | undefined, read(path: string, target: Uint8Array, position: number): number }}
+ *    [options.mounted] files read in place from elsewhere (the stores the user picked), whose paths in `fs` stand in
+ *    for them */
+export function createWasi(fs, { stdout = console.log, stderr = console.error, env = {}, mounted } = {}) {
   let memory;
   const view = () => new DataView(memory.buffer);
   const bytes = () => new Uint8Array(memory.buffer);
@@ -49,6 +52,19 @@ export function createWasi(fs, { stdout = console.log, stderr = console.error, e
   const iovecs = (pointer, count) => Array.from({ length: count }, (_, index) => ({
     buffer: view().getUint32(pointer + index * 8, true), length: view().getUint32(pointer + index * 8 + 4, true),
   }));
+  // A mounted file's path in `fs` stats as the file.
+  const fileStat = (entry) => entry.mounted ? fs.statSync(entry.mounted) : fs.fstatSync(entry.handle);
+  /** Reads a file's bytes at `position` into the iovecs; the number read. */
+  const readAt = (entry, pointer, count, position) => {
+    let total = 0;
+    for (const { buffer, length } of iovecs(pointer, count)) {
+      const read = entry.mounted ? mounted.read(entry.mounted, bytes().subarray(buffer, buffer + length), position + total)
+        : fs.readSync(entry.handle, bytes(), buffer, length, position + total);
+      total += read;
+      if (read < length) break;
+    }
+    return total;
+  };
   const writeFilestat = (pointer, stat) => {
     const out = view();
     out.setBigUint64(pointer, 0n, true);
@@ -113,7 +129,7 @@ export function createWasi(fs, { stdout = console.log, stderr = console.error, e
     fd_filestat_set_times: (fd, atime, mtime, flags) => guard(() => {
       const entry = fds.get(fd);
       if (!entry) return ERRNO.BADF;
-      if (entry.kind !== "file") return;
+      if (entry.kind !== "file" || entry.mounted) return;
       const now = Date.now() / 1000, seconds = (time, set, setNow) =>
         flags & setNow ? now : flags & set ? Number(time) / 1e9 : undefined;
       const stat = fs.fstatSync(entry.handle);
@@ -121,22 +137,85 @@ export function createWasi(fs, { stdout = console.log, stderr = console.error, e
         seconds(mtime, 4, 8) ?? stat.mtimeMs / 1000);
     }),
     fd_sync: (fd) => fds.has(fd) ? ERRNO.SUCCESS : ERRNO.BADF,
+    // SQLite (the A2AJ store) asks for these: flags it sets have no effect on these files.
+    fd_fdstat_set_flags: (fd) => fds.has(fd) ? ERRNO.SUCCESS : ERRNO.BADF,
+    fd_filestat_set_size: (fd, size) => guard(() => {
+      const entry = fds.get(fd);
+      if (entry?.kind !== "file") return ERRNO.BADF;
+      if (entry.mounted) return ERRNO.ACCES;
+      fs.ftruncateSync(entry.handle, Number(size));
+    }),
+    path_filestat_set_times: (fd, _flags, pointer, length, atime, mtime, flags) => guard(() => {
+      const target = resolve(fd, pointer, length);
+      if (!target) return ERRNO.BADF;
+      const now = Date.now() / 1000, stat = fs.statSync(target), seconds = (time, set, setNow) =>
+        flags & setNow ? now : flags & set ? Number(time) / 1e9 : undefined;
+      fs.utimesSync(target, seconds(atime, 1, 2) ?? stat.atimeMs / 1000, seconds(mtime, 4, 8) ?? stat.mtimeMs / 1000);
+    }),
+    // No file here is a link.
+    path_readlink: () => ERRNO.INVAL,
+    path_remove_directory: (fd, pointer, length) => guard(() => {
+      const target = resolve(fd, pointer, length);
+      if (!target) return ERRNO.BADF;
+      fs.rmdirSync(target);
+    }),
+    // A sleep (SQLite waiting out a lock): clock subscriptions wait their time; any other is ready at once.
+    poll_oneoff: (input, output, count, eventsPointer) => {
+      const subscriptions = Array.from({ length: count }, (_, index) => {
+        const at = input + index * 48, data = view();
+        return { userdata: data.getBigUint64(at, true), tag: data.getUint8(at + 8),
+          timeout: data.getBigUint64(at + 24, true), absolute: (data.getUint16(at + 40, true) & 1) !== 0 };
+      });
+      const clocks = subscriptions.filter(({ tag }) => tag === 0);
+      if (clocks.length === subscriptions.length && clocks.length) {
+        const nowNs = BigInt(Math.round((performance.timeOrigin + performance.now()) * 1e6));
+        const wait = Math.min(...clocks.map(({ timeout, absolute }) =>
+          Number(absolute ? (timeout > nowNs ? timeout - nowNs : 0n) : timeout) / 1e6));
+        if (wait > 0) {
+          if (typeof SharedArrayBuffer === "function") Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, wait);
+          else for (const end = performance.now() + wait; performance.now() < end;);
+        }
+      }
+      subscriptions.forEach(({ userdata, tag }, index) => {
+        const at = output + index * 32, data = view();
+        bytes().fill(0, at, at + 32);
+        data.setBigUint64(at, userdata, true);
+        data.setUint8(at + 10, tag);
+      });
+      view().setUint32(eventsPointer, subscriptions.length, true);
+      return ERRNO.SUCCESS;
+    },
     fd_close: (fd) => guard(() => {
       const entry = fds.get(fd);
       if (!entry) return ERRNO.BADF;
-      if (entry.kind === "file") fs.closeSync(entry.handle);
+      if (entry.kind === "file" && !entry.mounted) fs.closeSync(entry.handle);
       fds.delete(fd);
     }),
     fd_read: (fd, pointer, count, readPointer) => guard(() => {
       const entry = fds.get(fd);
       if (entry?.kind !== "file") return entry?.kind === "dir" ? ERRNO.ISDIR : ERRNO.BADF;
-      let total = 0;
-      for (const { buffer, length } of iovecs(pointer, count)) {
-        const read = fs.readSync(entry.handle, bytes(), buffer, length, entry.position);
-        entry.position += read; total += read;
-        if (read < length) break;
-      }
+      const total = readAt(entry, pointer, count, entry.position);
+      entry.position += total;
       view().setUint32(readPointer, total, true);
+    }),
+    fd_pread: (fd, pointer, count, offset, readPointer) => guard(() => {
+      const entry = fds.get(fd);
+      if (entry?.kind !== "file") return entry?.kind === "dir" ? ERRNO.ISDIR : ERRNO.BADF;
+      view().setUint32(readPointer, readAt(entry, pointer, count, Number(offset)), true);
+    }),
+    fd_seek: (fd, offset, whence, positionPointer) => guard(() => {
+      const entry = fds.get(fd);
+      if (entry?.kind !== "file") return entry?.kind === "dir" ? ERRNO.ISDIR : ERRNO.BADF;
+      const base = [0, entry.position, fileStat(entry).size][whence];
+      if (base === undefined || base + Number(offset) < 0) return ERRNO.INVAL;
+      entry.position = base + Number(offset);
+      view().setBigUint64(positionPointer, BigInt(entry.position), true);
+    }),
+    fd_filestat_get: (fd, pointer) => guard(() => {
+      const entry = fds.get(fd);
+      if (!entry) return ERRNO.BADF;
+      if (entry.kind === "stdio") return ERRNO.NOSYS;
+      writeFilestat(pointer, entry.kind === "dir" ? fs.statSync(entry.path) : fileStat(entry));
     }),
     fd_write: (fd, pointer, count, writtenPointer) => guard(() => {
       const entry = fds.get(fd);
@@ -197,7 +276,11 @@ export function createWasi(fs, { stdout = console.log, stderr = console.error, e
       let stat = null;
       try { stat = fs.statSync(target); } catch (error) { if (error?.code !== "ENOENT") throw error; }
       const write = (BigInt(rightsBase) & RIGHT_FD_WRITE) !== 0n;
-      if (stat?.isDirectory() || oflags & OFLAGS.DIRECTORY) {
+      if (mounted?.size(target) !== undefined) {
+        if (write || oflags & (OFLAGS.TRUNC | OFLAGS.DIRECTORY)) return ERRNO.ACCES;
+        if (oflags & OFLAGS.CREAT && oflags & OFLAGS.EXCL) return ERRNO.EXIST;
+        fds.set(nextFd, { kind: "file", mounted: target, position: 0 });
+      } else if (stat?.isDirectory() || oflags & OFLAGS.DIRECTORY) {
         if (!stat) return ERRNO.NOENT;
         if (!stat.isDirectory()) return ERRNO.NOTDIR;
         if (oflags & OFLAGS.CREAT && oflags & OFLAGS.EXCL) return ERRNO.EXIST;
@@ -218,7 +301,7 @@ export function createWasi(fs, { stdout = console.log, stderr = console.error, e
     imports: { wasi_snapshot_preview1: imports },
     /** Close the files an abandoned instance left open. */
     close() {
-      for (const [fd, entry] of fds) if (entry.kind === "file") {
+      for (const [fd, entry] of fds) if (entry.kind === "file" && !entry.mounted) {
         try { fs.closeSync(entry.handle); } catch { /* already closed */ }
         fds.delete(fd);
       }

@@ -16,7 +16,7 @@ const VFS = "picked-file";
 // document's overflow pages sit near each other.
 const BLOCK = 64 * 1024, BLOCKS = 512;
 const files = new Map(); // path -> Blob
-const open = new Map(); // sqlite3_file pointer -> { blob, blocks }
+const open = new Map(); // sqlite3_file pointer -> Blob or served file
 // A file's blocks outlive the connection that read them: each lookup opens the database afresh, and every one reads
 // its B-tree's root and inner pages again. A file chosen anew is another Blob, with blocks of its own.
 const read = new WeakMap(); // Blob or served file -> { blob, blocks }
@@ -71,6 +71,31 @@ function readBlock(entry, index) {
   return entry.blocks.get(index);
 }
 
+/** Reads `file`'s bytes from `start` into `target`, a WAL database's header as a rollback journal's (a WAL database
+ *  whose log is checkpointed reads as a rollback-journal one: there is no log to read and nothing writes, so SQLite
+ *  needs no shared memory for it); the number read. */
+function readInto(file, target, start) {
+  if (!read.has(file)) read.set(file, { blob: file, blocks: new Map() });
+  const entry = read.get(file);
+  let done = 0;
+  while (done < target.length && start + done < file.size) {
+    const at = start + done, block = readBlock(entry, Math.floor(at / BLOCK));
+    const from = at % BLOCK, count = Math.min(target.length - done, block.length - from);
+    if (count <= 0) break;
+    target.set(block.subarray(from, from + count), done);
+    done += count;
+  }
+  if (start <= 18 && start + done > 19 && target[18 - start] === 2) target[18 - start] = target[19 - start] = 1;
+  return done;
+}
+
+/** The files mounted here, as the engine's WASI filesystem reads them: the legal-structure engine reads the A2AJ
+ *  store itself. */
+export const mounted = {
+  size: (filename) => files.get(filename)?.size,
+  read: (filename, target, position) => readInto(files.get(filename), target, position),
+};
+
 function readServed({ url }, start, end) {
   if (start >= end) return new Uint8Array(0);
   const request = new XMLHttpRequest();
@@ -88,27 +113,17 @@ function installVfs({ capi, wasm, vfs }) {
   vfs.installVfs({ io: { struct: io, methods: {
     xClose: (pFile) => { open.delete(Number(pFile)); return 0; },
     xRead(pFile, pDest, n, offset64) {
-      const entry = open.get(Number(pFile)), start = Number(offset64), heap = wasm.heap8u(), dest = Number(pDest);
+      const target = wasm.heap8u().subarray(Number(pDest), Number(pDest) + n);
       try {
-        let done = 0;
-        while (done < n) {
-          const at = start + done, block = readBlock(entry, Math.floor(at / BLOCK));
-          const from = at % BLOCK, count = Math.min(n - done, block.length - from);
-          if (count <= 0) break;
-          heap.set(block.subarray(from, from + count), dest + done);
-          done += count;
-        }
-        // A WAL database whose log is checkpointed reads as a rollback-journal one: there is no log to
-        // read and nothing writes, so SQLite needs no shared memory for it.
-        if (start <= 18 && start + done > 19 && heap[dest + 18 - start] === 2) heap[dest + 18 - start] = heap[dest + 19 - start] = 1;
-        if (done < n) { heap.fill(0, dest + done, dest + n); return capi.SQLITE_IOERR_SHORT_READ; }
+        const done = readInto(open.get(Number(pFile)), target, Number(offset64));
+        if (done < n) { target.fill(0, done); return capi.SQLITE_IOERR_SHORT_READ; }
         return 0;
       } catch { return capi.SQLITE_IOERR_READ; }
     },
     xWrite: () => capi.SQLITE_READONLY,
     xTruncate: () => capi.SQLITE_READONLY,
     xSync: () => 0,
-    xFileSize: (pFile, pSize) => { wasm.poke64(pSize, BigInt(open.get(Number(pFile)).blob.size)); return 0; },
+    xFileSize: (pFile, pSize) => { wasm.poke64(pSize, BigInt(open.get(Number(pFile)).size)); return 0; },
     xLock: () => 0,
     xUnlock: () => 0,
     xCheckReservedLock: (pFile, pOut) => { wasm.poke32(pOut, 0); return 0; },
@@ -127,8 +142,7 @@ function installVfs({ capi, wasm, vfs }) {
     xOpen(pVfs, zName, pFile, flags, pOutFlags) {
       const blob = zName ? files.get(wasm.cstrToJs(zName)) : null;
       if (!blob) return capi.SQLITE_CANTOPEN;
-      if (!read.has(blob)) read.set(blob, { blob, blocks: new Map() });
-      open.set(Number(pFile), read.get(blob));
+      open.set(Number(pFile), blob);
       const file = new capi.sqlite3_file(pFile);
       file.$pMethods = io.pointer;
       file.dispose();
@@ -180,4 +194,4 @@ export class DatabaseSync {
   }
 }
 
-export default { DatabaseSync, mountFile, ready };
+export default { DatabaseSync, mountFile, mounted, ready };

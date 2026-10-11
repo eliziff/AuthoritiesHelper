@@ -3,6 +3,7 @@ import { Buffer } from "buffer";
 import fs from "./node/fs.mjs";
 import { ENGINE_PATH, process } from "./node/globals.mjs";
 import { createWasi } from "./wasi.mjs";
+import { mounted } from "node:sqlite";
 import { createStructureAddon, warmStructureAddon } from "./structure-addon.mjs";
 import { ApplicationError } from "../../../backend/src/lib/applicationError";
 import { createAuthoritiesOperations } from "../../../backend/src/lib/authoritiesOperations";
@@ -37,7 +38,9 @@ process.dlopen = (module, filename) => {
     let stderr = "";
     const wasi = createWasi(fs, { stderr: (text) => { stderr = `${stderr}\n${text}`.slice(-4_000); },
       // The PDF parse cache lives in this tab's memory, not on a disk: keep it small.
-      env: { LEGALPDF_CACHE_MAX_BYTES: String(64 * 1024 * 1024) } });
+      env: { LEGALPDF_CACHE_MAX_BYTES: String(64 * 1024 * 1024) },
+      // The engine reads the stores the user picked (the A2AJ store) itself.
+      mounted });
     const instance = new WebAssembly.Instance(engineModule, wasi.imports);
     wasi.initialize(instance);
     // The panic hook writes "thread ... panicked at file:line:\nmessage".
