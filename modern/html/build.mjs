@@ -162,10 +162,11 @@ export async function buildAuthoritiesHtml(output, { release = false, app } = {}
     // An app's runtime is its own checkout's: two copies of one app (a checkout and a packaging copy) share a name.
     cached(cacheDir, app ? `runtime-${app.name}` : "runtime",
       [app?.entry, app?.localStores && "local-stores", app?.ukCaseLaw && "uk-case-law", app?.network === false && "no-network",
-        app?.workExtents === false && "no-work-extents"]
+        app?.workExtents === false && "no-work-extents", app?.citedCases]
         .filter(Boolean).join(" "), async () => {
       const { code, inputs } = await bundleRuntime({ plugins: app?.runtimePlugins ?? [], localStores: !!app?.localStores,
-        ukCaseLaw: !!app?.ukCaseLaw, network: app?.network !== false, workExtents: app?.workExtents !== false });
+        ukCaseLaw: !!app?.ukCaseLaw, network: app?.network !== false, workExtents: app?.workExtents !== false,
+        citedCases: app?.citedCases ?? "resolve" });
       const files = bundledFiles(inputs, backend);
       // A contract's TypeScript source, once written, replaces the JavaScript the runtime bundled.
       const contracts = files.flatMap((file) => /[\\/]shared[\\/]runtime[\\/][^\\/]+\.mjs$/u.test(file)

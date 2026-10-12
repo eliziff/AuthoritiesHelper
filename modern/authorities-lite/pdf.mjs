@@ -7,7 +7,7 @@ import { recognizePage } from './ocr.mjs';
 import { assetURL } from './assets.mjs';
 import { findTargets, initialMarks } from './domain.mjs';
 import { caller, extractCitations } from './engine.mjs';
-import { verifyIdentity } from '../../../shared/folder-pdf-match.mjs';
+import { rotatedMarginText, verifyIdentity } from '../../../shared/folder-pdf-match.mjs';
 import { ANNOTATION_SCHEMA, decodeAnnotationSet } from '../../../shared/pdf-annotations.mjs';
 import { writeAuthorityAnnotations } from '../../../shared/pdf-annotation-writer.mjs';
 import { reporterMarginLabels, resolvePdfPagination } from '../../../shared/pdf-page-binding.mjs';
@@ -99,8 +99,9 @@ export function assembleText(pages) {
 export async function inspectOpening(data) {
   const pdf=await openPdf(data),pages=[];
   try {if(pdf.numPages>2000)throw new Error('PDF exceeds the 2,000-page limit.');for(let n=1;n<=Math.min(2,pdf.numPages);n++){
-    const page=await pdf.getPage(n),viewport=page.getViewport({scale:1});
-    pages.push({number:n,width:viewport.width,height:viewport.height,lines:nativeLines(await page.getTextContent(),viewport,n),ocr:false});
+    const page=await pdf.getPage(n),viewport=page.getViewport({scale:1}),content=await page.getTextContent();
+    pages.push({number:n,width:viewport.width,height:viewport.height,lines:nativeLines(content,viewport,n),
+      marginText:rotatedMarginText(content.items,viewport,Util),ocr:false});
     page.cleanup();
   }return {pdf,pages};}catch(error){await pdf.destroy();throw error;}
 }
@@ -112,7 +113,9 @@ export async function inspectPdf(data, engine, progress=()=>{}, signal, expected
     for(let n=1;n<=pdf.numPages;n++){
       signal?.throwIfAborted();progress(`Reading page ${n} of ${pdf.numPages}`);
       const page=await pdf.getPage(n),viewport=page.getViewport({scale:1});
-      const native=options.prepared?.pages[n-1]?.lines||nativeLines(await page.getTextContent(),viewport,n);let lines=native,ocr=null;
+      const prepared=options.prepared?.pages[n-1],content=prepared?null:await page.getTextContent();
+      const native=prepared?prepared.lines:nativeLines(content,viewport,n);let lines=native,ocr=null;
+      const marginText=prepared?prepared.marginText:n<=2?rotatedMarginText(content.items,viewport,Util):'';
       const useful=native.reduce((sum,l)=>sum+(l.text.match(/[\p{L}\p{N}]/gu)?.length||0),0);
       const body=native.filter(l=>l.rect[1]>.1&&l.rect[3]<.9).reduce((sum,l)=>sum+l.text.length,0);
       let hasImage=false;
@@ -130,7 +133,7 @@ export async function inspectPdf(data, engine, progress=()=>{}, signal, expected
           }
         }finally{view.canvas.width=view.canvas.height=1;}
       }
-      pages.push({number:n,width:viewport.width,height:viewport.height,lines,ocr:!!ocr});
+      pages.push({number:n,width:viewport.width,height:viewport.height,lines,marginText,ocr:!!ocr});
       ocrPages.push(ocr||{lines:[],transform:[1,0,0,1,0,0]});page.cleanup();
       if(n===1&&expectedRecord&&options.verify!==false)verifyIdentity(pages,expectedRecord,caller(engine));
       await new Promise(resolve=>setTimeout(resolve,0));

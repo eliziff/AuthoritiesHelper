@@ -9,8 +9,10 @@ import { keepLocal } from "./undici.mjs";
 
 const A2AJ = "/stores/a2aj/a2aj.sqlite";
 const JOURNALS_SEARCH = "/stores/journals/public_endpoint-search.sqlite";
+const CANLII = "/stores/canlii/canlii.db";
 const journals = { database: null, search: null, at: null };
 let a2ajMounted = false;
+let canliiFile = null;
 
 /** The "mount-store" operation: reads `file` as the store, or stops reading it (null). For A2AJ,
  *  `localOnly` keeps every lookup on this computer: A2AJ, the National Archives, Justice Laws and the publisher PDF
@@ -22,6 +24,19 @@ export async function mountStore({ store, file, localOnly }) {
     useA2AJCorpus(a2ajMounted ? A2AJ : null, { localOnly: !!localOnly });
   }
   await ready;
+  if (store === "canlii") {
+    mountFile(CANLII, file);
+    try {
+      if (file) {
+        const db = new DatabaseSync(CANLII);
+        try { db.prepare("SELECT databaseId, caseId, title FROM cases LIMIT 0").all(); }
+        finally { db.close(); }
+        process.env.ALR_CANLII_DB = CANLII;
+      } else delete process.env.ALR_CANLII_DB;
+      canliiFile = file;
+    } catch (error) { mountFile(CANLII, canliiFile); throw error; }
+    return { data: null };
+  }
   if (store === "a2aj") {
     mountFile(A2AJ, file);
     a2ajMounted = !!file;

@@ -60,8 +60,14 @@ npm run build:authorities-html -- --release
 
 A2AJ answers browsers directly. Publisher sites do not, so court decisions and official
 legislation PDFs come through the provider PDF service, the `quiet-wildflower-ab0d` Worker
-built from [authorities-lite/worker.mjs](authorities-lite/worker.mjs); any other source is attached
-manually. The HTML package embeds the OCR model, runtime, layout workers and
+built from [authorities-lite/worker.mjs](authorities-lite/worker.mjs). Its bounded
+`POST /source` bridge also supports CourtListener, GovInfo, their approved PDF hosts
+and ordinary CanLII document reads for networked source acquisition. Challenges and
+redirects require a browser visit and PDF attachment. The new endpoint must be
+deployed separately: rebuilding standalone HTML does not update the remote Worker.
+Private ALR's existing local program provides the same endpoint after a program
+rebuild, so its served pages do not require that remote deployment. Authorities-lite
+keeps its manual CanLII handoff. The HTML package embeds the OCR model, runtime, layout workers and
 PDF worker. Scanned pages are recognized in the browser and passed to the
 shared PDF parser with their page geometry. The recognition WebAssembly in
 [browser-ocr/wasm](browser-ocr/wasm) is rebuilt from pinned ONNX Runtime and

@@ -50,7 +50,7 @@ const withoutWorkExtents = {
 // `workExtents: false`: the runtime holds no works pack (shared/work-extents-data.mjs, 2.6 MB, 0.7 MB gzipped), and the citation
 // engine's locator rules know no work's extent.
 export async function bundleRuntime({ plugins = [], localStores = false, ukCaseLaw = false, network = true,
-  workExtents = true } = {}) {
+  workExtents = true, citedCases = "resolve" } = {}) {
   const { build } = createRequire(path.join(backend, "package.json"))("esbuild");
   const options = {
     absWorkingDir: backend, bundle: true, write: false,
@@ -68,6 +68,7 @@ export async function bundleRuntime({ plugins = [], localStores = false, ukCaseL
     // Server code locates siblings from its own directory; the runtime has one virtual root.
     define: { "process.env.NODE_ENV": '"production"', __dirname: '"/app"', __filename: '"/app/runtime.js"',
       __PARSE_WORKER__: JSON.stringify(parser.outputFiles[0].text), __LOCAL_STORES__: String(localStores),
+      __CASE_MISMATCH_MODE__: JSON.stringify(citedCases),
       __UK_CASE_LAW__: String(ukCaseLaw), __NETWORK__: String(network) },
   });
   // Every file either bundle read, relative to the backend.

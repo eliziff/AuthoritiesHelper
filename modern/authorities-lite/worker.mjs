@@ -1,5 +1,6 @@
 // MIT. Public-publisher retrieval only: no PDF uploads, OCR, or document storage.
 import { acquirePdf, DECISIA_HOSTS, LEGISLATION_PDF_HOSTS, LIMITS, SourceError } from './network.mjs';
+import { readProviderSource } from '../provider-source-service.mjs';
 export function createWorker(fetcher = fetch) {
   return {
     async fetch(request, env = {}) {
@@ -16,18 +17,34 @@ export function createWorker(fetcher = fetch) {
       const allowed = new Set((env.ALLOWED_ORIGINS || 'null,https://eliziff.github.io').split(',').map(s => s.trim()).filter(Boolean));
       allowed.add(incoming.origin);
       const headers = { 'Vary': 'Origin', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff',
-        'Access-Control-Allow-Methods': 'GET, OPTIONS',
+        'Access-Control-Allow-Methods': incoming.pathname === '/source' ? 'POST, OPTIONS' : 'GET, OPTIONS',
         'Access-Control-Expose-Headers': 'Content-Length, X-Publisher-Pdf-Url', 'Referrer-Policy': 'no-referrer' };
       if (origin && allowed.has(origin)) headers['Access-Control-Allow-Origin'] = origin;
       state.headers = headers;
       const json = (data, status = 200) => new Response(JSON.stringify(data), { status, headers: { ...headers, 'Content-Type': 'application/json' } });
       if (origin && !allowed.has(origin)) return json({ error: 'This application origin is not permitted.', code: 'origin_denied' }, 403);
-      if (!['/pdf', '/health'].includes(incoming.pathname)) return json({ error: 'Not found.' }, 404);
+      if (!['/pdf', '/source', '/health'].includes(incoming.pathname)) return json({ error: 'Not found.' }, 404);
       if (request.method === 'OPTIONS') {
         const method = request.headers.get('access-control-request-method');
         const requested = request.headers.get('access-control-request-headers');
-        if ((method && method !== 'GET') || requested) return json({ error: 'Preflight not permitted.' }, 403);
+        if (incoming.pathname === '/source') {
+          if ((method && method !== 'POST') || requested && requested.toLowerCase() !== 'content-type')
+            return json({ error: 'Preflight not permitted.' }, 403);
+          headers['Access-Control-Allow-Headers'] = 'Content-Type';
+        } else if ((method && method !== 'GET') || requested) return json({ error: 'Preflight not permitted.' }, 403);
         return new Response(null, { status: 204, headers });
+      }
+      if (incoming.pathname === '/source') {
+        if (request.method !== 'POST') return json({ error: 'Only POST is supported.' }, 405);
+        if (env.RATE_LIMITER && !(await env.RATE_LIMITER.limit({ key: request.headers.get('CF-Connecting-IP') || 'unknown' })).success)
+          return json({ error: 'Too many lookups. Retry shortly.', code: 'rate_limited' }, 429);
+        try {
+          const answer = await readProviderSource(request, fetcher);
+          return new Response(answer.body, { status: answer.status, headers: { ...headers, ...Object.fromEntries(answer.headers) } });
+        } catch (error) {
+          return json({ error: error instanceof SourceError ? error.message : 'The legal source could not be reached.',
+            code: error.code || 'provider_error' }, error.status || 502);
+        }
       }
       if (request.method !== 'GET') return json({ error: 'Only GET is supported.' }, 405);
       if (incoming.pathname === '/health') return json({ ok: true, service: 'authorities-provider-pdf', version: 2,

@@ -7,11 +7,18 @@ import { DECISIA_HOSTS, LEGISLATION_PDF_HOSTS } from "../../../backend/src/lib/l
 
 import { DEFAULT_SERVICE_URL } from "../provider-pdf-service.mjs";
 import { keepAnswer, keepPdf, keptAnswer, keptPdf } from "./source-pdf-cache.mjs";
+import { process } from "./node/globals.mjs";
 
 const DIRECT_HOSTS = new Set(["api.a2aj.ca"]);
 // A page built with the ukCaseLaw option (the ALR Quote Verifier) also reads UK decisions from the National
 // Archives' Find Case Law, which serves browsers directly too (Access-Control-Allow-Origin: *).
-if (__UK_CASE_LAW__) DIRECT_HOSTS.add("caselaw.nationalarchives.gov.uk");
+if (__UK_CASE_LAW__) {
+  DIRECT_HOSTS.add("caselaw.nationalarchives.gov.uk");
+  DIRECT_HOSTS.add("www.gov.uk");
+}
+const CANLII_HOSTS = new Set(["www.canlii.org", "canlii.org", "www.canlii.ca", "canlii.ca"]);
+const FOREIGN_HOSTS = new Set(__UK_CASE_LAW__ ? ["www.courtlistener.com", "storage.courtlistener.com",
+  "api.govinfo.gov", "www.govinfo.gov", "assets.publishing.service.gov.uk"] : []);
 // Justice Laws serves its pages to browsers directly too (Access-Control-Allow-Origin: *): an annual
 // statute's page is read for its title, while its PDF still comes through the service.
 const directPage = (url) => url.hostname === "laws-lois.justice.gc.ca" && /^\/eng\/AnnualStatutes\/\d{4}_\d{1,3}\/$/u.test(url.pathname);
@@ -33,6 +40,24 @@ async function directAnswer(url, init) {
   // An empty answer (the decision is not in A2AJ yet) is kept only a day.
   keepAnswer(url.href, body, Date.now() + (/"results"\s*:\s*\[\s*\]/u.test(body) ? ANSWER_TTL_MS : answerLifetime(url)));
   return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
+}
+async function providerAnswer(url, init) {
+  const endpoint = process.env.ALR_PROVIDER_SERVICE_URL || new URL("source", DEFAULT_SERVICE_URL).href;
+  const headers = new Headers(init.headers), token = headers.get("authorization")?.replace(/^Token\s+/iu, "")
+    || (url.hostname === "api.govinfo.gov" ? url.searchParams.get("api_key") : null);
+  const source = new URL(url);
+  source.searchParams.delete("api_key");
+  const pdf = /pdf/iu.test(headers.get("accept") ?? "") || /(?:\.pdf|\/pdf)$/iu.test(source.pathname);
+  const response = await globalThis.fetch(endpoint, { method: "POST", signal: init.signal,
+    credentials: "omit", referrerPolicy: "no-referrer", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ source: source.href, method: init.method ?? "GET",
+      ...init.body ? { body: String(init.body) } : {}, ...token ? { token } : {},
+      accept: pdf ? "application/pdf" : "application/json" }) });
+  if (!response.ok) {
+    const detail = await response.json().catch(() => null);
+    throw new Error(detail?.error ?? `The legal source service could not reach ${url.hostname} (${response.status}).`);
+  }
+  return response;
 }
 const PUBLISHER_HOSTS = new Set([...DECISIA_HOSTS, "www.bccourts.ca", "bccourts.ca", ...LEGISLATION_PDF_HOSTS]);
 
@@ -102,6 +127,8 @@ async function networkFetch(input, init = {}) {
   if (directPage(url)) return globalThis.fetch(url, { ...rest, credentials: "omit", referrerPolicy: "no-referrer",
     redirect: redirect === "manual" ? "follow" : redirect });
   if (PUBLISHER_HOSTS.has(url.hostname)) return publisherPdf(url, rest);
+  if (FOREIGN_HOSTS.has(url.hostname)) return providerAnswer(url, rest);
+  if (CANLII_HOSTS.has(url.hostname)) return providerAnswer(url, rest);
   throw new Error(`${url.hostname} cannot be reached from this page. Attach the PDF instead.`);
 }
 // A page built without network (runtime-bundle.mjs) reaches no host at all, and holds none of the code that would.

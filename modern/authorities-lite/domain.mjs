@@ -1,7 +1,7 @@
 // MIT. Citation recognition and structural boundaries belong to the shared Rust engine.
 import { citationCall, extractCitations } from './engine.mjs';
 import { resolvePrintedPages } from '../../../shared/pdf-page-binding.mjs';
-import { CANLII_PDF_NAME } from '../../../shared/folder-pdf-match.mjs';
+export { canliiFileCitation } from '../../../shared/folder-pdf-match.mjs';
 export const key = (text, engine) => citationCall(engine, 'keyForText', { text: String(text || '') }).key;
 /** The style of cause a decision prints before its own citation, as a CanLII PDF opens: "Citation: Pell v
  *  Marlow Holdings, 2030 ABKB 12" gives "Pell v Marlow Holdings". A caption that is not a plain "Name, citation" (a label such as "Neutral
@@ -73,6 +73,3 @@ export function initialMarks(findings) {
   return findings.filter(f => f.status === 'found').map((f, i) => ({ id: `auto-${i}-${f.target.value}`, kind: 'highlight', origin: 'automatic', label: targetLabel(f.target),
     excerpt: f.excerpt, rgb: [1, .93, .45], opacity: .3, fragments: f.fragments }));
 }
-// The neutral citation a CanLII file name stands for; court codes key only in capitals.
-export const canliiFileCitation = name => { const match = CANLII_PDF_NAME.exec(name);
-  return match ? `${match[1]} ${match[2].toUpperCase()} ${match[3]}` : null; };

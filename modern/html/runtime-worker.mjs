@@ -119,11 +119,12 @@ self.onmessage = async ({ data }) => {
     data.error ? pending.reject(new Error(data.error)) : pending.resolve(data.result);
   } else if (data.type === "init") {
     try {
+      if (__NETWORK__ && data.providerServiceUrl) process.env.ALR_PROVIDER_SERVICE_URL = data.providerServiceUrl;
       await loadEngine(data.engine);
       // A publisher's original the page kept from an earlier fetch stands in for one it blocked now.
       const sources = { ...authoritySourceServices, stored: keptPdf };
       operations = createAuthoritiesOperations((draft, _sources, signal, authorityId, progress, keptOnly) =>
-        resolveAuthoritiesSources(draft, sources, signal, authorityId, progress, keptOnly));
+        resolveAuthoritiesSources(draft, sources, signal, authorityId, progress, keptOnly, __CASE_MISMATCH_MODE__));
       // A page built with local stores (runtime-bundle.mjs) gives the runtime the files it reads them from.
       if (__LOCAL_STORES__) operations["mount-store"] = (await import("./local-stores.mjs")).mountStore;
     } catch (error) {
