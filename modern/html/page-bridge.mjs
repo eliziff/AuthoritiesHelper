@@ -112,7 +112,8 @@ const ready = runtimeCode.then((code) => new Promise((resolve, reject) => {
     else if (data.type === "error") request.fail(Object.assign(new Error(data.message), { status: data.status }));
   };
   worker.postMessage({ type: "init", engine: payload.engine, providerServiceUrl: globalThis.ALR_PROVIDER_SERVICE_URL
-    ? new URL(globalThis.ALR_PROVIDER_SERVICE_URL, location.href).href : undefined });
+    ? new URL(globalThis.ALR_PROVIDER_SERVICE_URL, location.href).href : undefined,
+    pdfServiceUrl: globalThis.ALR_PDF_SERVICE_URL ? new URL(globalThis.ALR_PDF_SERVICE_URL, location.href).href : undefined });
 }));
 ready.catch(() => { /* each request reports it */ });
 return { ready, post: (message, transfer) => worker.postMessage(message, transfer) };

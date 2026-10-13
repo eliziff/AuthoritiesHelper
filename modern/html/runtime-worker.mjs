@@ -120,6 +120,7 @@ self.onmessage = async ({ data }) => {
   } else if (data.type === "init") {
     try {
       if (__NETWORK__ && data.providerServiceUrl) process.env.ALR_PROVIDER_SERVICE_URL = data.providerServiceUrl;
+      if (__NETWORK__ && data.pdfServiceUrl) process.env.ALR_PDF_SERVICE_URL = data.pdfServiceUrl;
       await loadEngine(data.engine);
       // A publisher's original the page kept from an earlier fetch stands in for one it blocked now.
       const sources = { ...authoritySourceServices, stored: keptPdf };

@@ -15,9 +15,10 @@ const DIRECT_HOSTS = new Set(["api.a2aj.ca"]);
 if (__UK_CASE_LAW__) {
   DIRECT_HOSTS.add("caselaw.nationalarchives.gov.uk");
   DIRECT_HOSTS.add("www.gov.uk");
+  DIRECT_HOSTS.add("www.courtlistener.com");
 }
 const CANLII_HOSTS = new Set(["www.canlii.org", "canlii.org", "www.canlii.ca", "canlii.ca"]);
-const FOREIGN_HOSTS = new Set(__UK_CASE_LAW__ ? ["www.courtlistener.com", "storage.courtlistener.com",
+const FOREIGN_HOSTS = new Set(__UK_CASE_LAW__ ? ["storage.courtlistener.com",
   "api.govinfo.gov", "www.govinfo.gov", "assets.publishing.service.gov.uk"] : []);
 // Justice Laws serves its pages to browsers directly too (Access-Control-Allow-Origin: *): an annual
 // statute's page is read for its title, while its PDF still comes through the service.
@@ -84,7 +85,7 @@ async function publisherPdf(url, init) {
   return new Response(bytes.slice(), { status, headers });
 }
 async function servicePdf(url, init) {
-  const service = new URL("pdf", DEFAULT_SERVICE_URL);
+  const service = new URL(process.env.ALR_PDF_SERVICE_URL || new URL("pdf", DEFAULT_SERVICE_URL).href);
   service.searchParams.set("source", url.href);
   const request = { signal: init.signal, credentials: "omit", referrerPolicy: "no-referrer" };
   let response;

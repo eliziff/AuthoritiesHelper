@@ -230,7 +230,7 @@ export async function buildAuthoritiesHtml(output, { release = false, app } = {}
   assert(!/\b(?:src|href)="\/(?:assets|src)\//u.test(page), "Authorities.html still references a build file");
   // The hosts the runtime reaches (undici.mjs), unless the app names its own.
   const connectSources = app?.connectSources ?? ["https://api.a2aj.ca", "https://laws-lois.justice.gc.ca",
-    ...app?.ukCaseLaw ? ["https://caselaw.nationalarchives.gov.uk"] : [], new URL(DEFAULT_SERVICE_URL).origin];
+    ...app?.ukCaseLaw ? ["https://caselaw.nationalarchives.gov.uk", "https://www.gov.uk", "https://www.courtlistener.com"] : [], new URL(DEFAULT_SERVICE_URL).origin];
   const secured = withContentSecurityPolicy(page, connectSources);
   mkdirSync(path.dirname(output), { recursive: true });
   writeFileSync(output, secured);

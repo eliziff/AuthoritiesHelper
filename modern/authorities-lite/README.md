@@ -31,11 +31,9 @@ Check `https://quiet-wildflower-ab0d.authorities-lite.workers.dev/health`. If de
 The source tree also provides `POST /source` for networked full Authorities and ALR:
 CourtListener and GovInfo API reads, approved API-provider PDFs, and ordinary CanLII
 HTML/PDF reads. It rejects redirects and challenges rather than routing around them.
-Authorities-lite still uses its manual CanLII handoff. This new endpoint requires a
-Worker deployment; repository and HTML builds do not deploy it, and the previously
-deployed `/pdf` service alone cannot serve these requests. Private ALR's existing
-local program server supplies the same `/source` bridge after a program rebuild,
-without a remote Worker update.
+Authorities-lite still uses its manual CanLII handoff. The endpoint was deployed
+on October 13, 2026; live GovInfo retrieval and CORS boundary checks passed.
+Repository and HTML builds do not deploy Worker changes.
 
 There is deliberately no application secret. The endpoint is public but narrowly constrained to approved public legal-publisher hosts and paths; a shared secret distributed to browser clients would not be secret. Do not put Cloudflare account credentials or API tokens in the HTML. No account is created, paid plan enabled, or public deployment performed by the repository build.
 

@@ -53,7 +53,7 @@ export async function bundleRuntime({ plugins = [], localStores = false, ukCaseL
   workExtents = true, citedCases = "resolve" } = {}) {
   const { build } = createRequire(path.join(backend, "package.json"))("esbuild");
   const options = {
-    absWorkingDir: backend, bundle: true, write: false,
+    absWorkingDir: backend, bundle: true, write: false, preserveSymlinks: true,
     platform: "browser", format: "iife", target: "es2022", minify: true, legalComments: "none",
     mainFields: ["browser", "module", "main"], conditions: ["worker", "browser"],
     inject: [own("node/globals.mjs")], logLevel: "warning",
