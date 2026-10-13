@@ -20,20 +20,13 @@ let running = 0;
 function spawn() {
   source ??= URL.createObjectURL(new Blob([__PARSE_WORKER__], { type: "text/javascript" }));
   const worker = new Worker(source, { name: "authorities-pdf-parse" });
-  // Its first message says it has the engine, which needs this thread free to deliver it.
-  worker.started = new Promise((resolve) => {
-    worker.addEventListener("message", resolve, { once: true });
-    worker.addEventListener("error", resolve, { once: true });
-  });
   worker.postMessage({ module: engine });
   return worker;
 }
 
-// A parser that has read a PDF is closed when left idle, with the memory its engine holds (over
-// 100 MB once readied); the next PDF starts one. The one readied as the page opens waits for the
-// first PDF.
-function park(worker, fresh = false) {
-  const parked = { worker, timer: fresh ? undefined : setTimeout(() => {
+// Release a used parser after its idle window; DOCX-only sessions never start one.
+function park(worker) {
+  const parked = { worker, timer: setTimeout(() => {
     idle.splice(idle.indexOf(parked), 1); worker.terminate();
   }, IDLE_MS) };
   idle.push(parked);
@@ -175,13 +168,6 @@ async function parse(sha256, bytes, request, requestKey, signal) {
 
 export const pdfParser = {
   start(module) { engine = module; },
-  /** Readies a parser ahead of the first PDF; settles once it has the engine. */
-  warm() {
-    if (idle.length || running) return Promise.resolve();
-    const worker = spawn();
-    park(worker, true);
-    return worker.started;
-  },
   /** preparePdfDocument, in a parse Worker. */
   async prepare(bytes, request, signal) {
     const sha256 = request.expected_source_sha256 ?? await digest(bytes);

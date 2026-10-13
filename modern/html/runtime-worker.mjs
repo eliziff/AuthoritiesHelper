@@ -134,13 +134,11 @@ self.onmessage = async ({ data }) => {
       return;
     }
     self.postMessage({ type: "ready" });
-    // Ready the engine and a PDF parser now, while the user chooses a file, not during their first import.
-    // The parser starts first: its Worker cannot receive the engine while this thread is busy.
-    // The previews' runtime draws covers and indexes, which call no engine: it readies neither, and its
-    // engine (over 100 MB once readied) is started only if a preview ever asks for it.
-    if (self.name !== "authorities-previews") pdfParser.warm().then(() => {
-      try { warmStructureAddon(structureNative()); } catch (error) { console.error(error); }
-    });
+    // Warm the common citation path only. PDF workers and other grammars start on demand,
+    // so a DOCX session does not retain an unused PDF engine or every jurisdiction's tables.
+    if (self.name !== "authorities-previews") {
+      try { warmStructureAddon(structureNative(), { partly: true }); } catch (error) { console.error(error); }
+    }
   } else if (data.type === "operation") {
     void handle(data);
   } else if (data.type === "abort") {

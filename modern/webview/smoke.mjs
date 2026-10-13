@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
 import path from 'node:path';
 import { setTimeout } from 'node:timers/promises';
 import { launchShell } from './launch.mjs';
@@ -28,7 +29,7 @@ async function run() {
     assets: file => readFileSync(path.resolve(import.meta.dirname, '../out/webview', file)),
     async handle(request) {
       const url = new URL(request.url);
-      if (url.pathname === '/') return new Response(page, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+      if (url.pathname === '/') return new Response(page + '<!--' + 'large page '.repeat(200000) + '-->', { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
       if (url.pathname === '/bytes') {
         assert.equal(request.headers.get('range'), 'bytes=1-3');
         return new Response('bcd', { status: 206, headers: { 'Content-Range': 'bytes 1-3/6' } });
@@ -46,6 +47,9 @@ async function run() {
       await setTimeout(100);
     }
     assert.deepEqual(result?.values, ['bcd', 'invented request'], JSON.stringify(result));
+    const window = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+      `(Get-Process -Id ${host.pid}).MainWindowHandle`], { encoding: 'utf8', windowsHide: true }).trim();
+    assert.notEqual(window, '0', 'The application window must be visible');
     // No debugger port or HTTP listener is used by either application process.
     const listeners = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
       `Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object { $_.OwningProcess -in @(${process.pid},${host.pid}) } | Select-Object -ExpandProperty LocalPort`],
@@ -66,5 +70,5 @@ try {
 } finally {
   // Only this harness profile is disposable; keep the latest screenshot for review.
   assert(home.startsWith(output + path.sep));
-  rmSync(home, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
+  await rm(home, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
 }

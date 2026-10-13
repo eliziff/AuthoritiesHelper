@@ -9,7 +9,7 @@ const VERSION = '1.0.4258.31';
 const SHA256 = '56f7f4b8bf9aee4b8efefbbdd4f67d5f74ebd1b100ed0806da71bf76af481aa9';
 const FILES = ['Microsoft.Web.WebView2.Core.dll', 'Microsoft.Web.WebView2.WinForms.dll', 'WebView2Loader.dll'];
 
-export async function buildShell(out) {
+export async function buildShell(out, { icon } = {}) {
   const cache = path.resolve(here, '../out/.cache/webview2');
   mkdirSync(cache, { recursive: true }); mkdirSync(out, { recursive: true });
   const name = `microsoft.web.webview2.${VERSION}.nupkg`, archive = path.join(cache, name);
@@ -22,11 +22,14 @@ export async function buildShell(out) {
     throw new Error('The WebView2 SDK archive does not match the pinned SHA-256.');
   execFileSync(path.join(process.env.SystemRoot, 'System32/tar.exe'), ['-xf', name,
     'lib/net462/Microsoft.Web.WebView2.Core.dll', 'lib/net462/Microsoft.Web.WebView2.WinForms.dll',
-    'runtimes/win-x64/native/WebView2Loader.dll'], { cwd: cache });
+    'runtimes/win-x64/native/WebView2Loader.dll', 'LICENSE.txt', 'NOTICE.txt'], { cwd: cache });
+  for (const file of ['LICENSE.txt', 'NOTICE.txt']) copyFileSync(path.join(cache, file), path.join(out, file));
   for (const file of FILES) copyFileSync(path.join(cache,
     file === 'WebView2Loader.dll' ? 'runtimes/win-x64/native' : 'lib/net462', file), path.join(out, file));
   const compiler = path.join(process.env.SystemRoot, 'Microsoft.NET/Framework64/v4.0.30319/csc.exe');
   execFileSync(compiler, ['/nologo', '/target:winexe', '/platform:x64', '/optimize+', '/out:' + path.join(out, 'WebViewShell.exe'),
+    '/win32manifest:' + path.join(here, 'app.manifest'),
+    ...icon ? ['/win32icon:' + icon] : [],
     '/r:System.Windows.Forms.dll', '/r:System.Drawing.dll', '/r:System.Web.Extensions.dll',
     ...FILES.filter(file => file.startsWith('Microsoft.')).map(file => '/r:' + path.join(out, file)),
     path.join(here, 'Shell.cs')], { stdio: 'inherit' });

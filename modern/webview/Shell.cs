@@ -28,6 +28,7 @@ internal sealed class Shell : Form
     private Shell(string title, string address, string data)
     {
         Text = title;
+        Icon = System.Drawing.Icon.ExtractAssociatedIcon(Application.ExecutablePath);
         origin = new Uri(address).GetLeftPart(UriPartial.Authority);
         profile = data;
         Width = 1440; Height = 960; MinimumSize = new System.Drawing.Size(900, 600);
@@ -49,6 +50,11 @@ internal sealed class Shell : Form
         {
             var environment = await CoreWebView2Environment.CreateAsync(null, profile);
             await view.EnsureCoreWebView2Async(environment);
+            // Let Chromium discard caches while minimized without suspending verification work.
+            Resize += delegate {
+                view.CoreWebView2.MemoryUsageTargetLevel = WindowState == FormWindowState.Minimized
+                    ? CoreWebView2MemoryUsageTargetLevel.Low : CoreWebView2MemoryUsageTargetLevel.Normal;
+            };
             view.CoreWebView2.Settings.AreHostObjectsAllowed = false;
             view.CoreWebView2.Settings.IsWebMessageEnabled = false;
             // Include worker requests: the document engine reads database ranges
@@ -125,7 +131,7 @@ internal sealed class Shell : Form
                     throw new TimeoutException("The application request timed out.");
                 var result = await answer.Task;
                 e.Response = view.CoreWebView2.Environment.CreateWebResourceResponse(
-                    new MemoryStream(Convert.FromBase64String((string)result["body"])),
+                    new MemoryStream((byte[])result["body"]),
                     Convert.ToInt32(result["status"]), (string)result["statusText"], (string)result["headers"]);
             }
             catch (Exception error)
@@ -141,11 +147,18 @@ internal sealed class Shell : Form
     {
         try
         {
-            string line;
+            var input = new BinaryReader(Console.OpenStandardInput());
             var reader = new JavaScriptSerializer { MaxJsonLength = 160 * 1024 * 1024 };
-            while ((line = Console.In.ReadLine()) != null)
+            while (true)
             {
-                var result = reader.Deserialize<Dictionary<string, object>>(line);
+                int headerLength = input.ReadInt32(), bodyLength = input.ReadInt32();
+                if (headerLength < 0 || headerLength > 1048576 || bodyLength < 0 || bodyLength > 128 * 1024 * 1024)
+                    throw new InvalidDataException("The application response is too large.");
+                var header = input.ReadBytes(headerLength);
+                var body = input.ReadBytes(bodyLength);
+                if (header.Length != headerLength || body.Length != bodyLength) throw new EndOfStreamException();
+                var result = reader.Deserialize<Dictionary<string, object>>(Encoding.UTF8.GetString(header));
+                result["body"] = body;
                 var type = (string)result["type"];
                 if (type == "response")
                 {

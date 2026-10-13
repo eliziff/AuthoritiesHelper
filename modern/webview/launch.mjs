@@ -15,9 +15,15 @@ export function launchShell({ assets, title, origin, home, handle }) {
     if (!existsSync(destination) || hash(readFileSync(destination)) !== hash(bytes)) writeFileSync(destination, bytes);
   }
   const child = spawn(path.join(directory, 'WebViewShell.exe'), [title, origin, path.join(home, 'webview')],
-    { windowsHide: true, stdio: ['pipe', 'pipe', 'inherit'] });
+    { windowsHide: false, stdio: ['pipe', 'pipe', 'inherit'] });
   const messages = createInterface({ input: child.stdout });
-  const send = message => { if (!child.stdin.destroyed) child.stdin.write(JSON.stringify(message) + '\n'); };
+  // Frame raw response bytes separately: base64 JSON made several page-sized copies in both processes.
+  const send = (message, body = Buffer.alloc(0)) => {
+    if (child.stdin.destroyed) return;
+    const header = Buffer.from(JSON.stringify(message)), lengths = Buffer.allocUnsafe(8);
+    lengths.writeUInt32LE(header.length); lengths.writeUInt32LE(body.length, 4);
+    child.stdin.write(lengths); child.stdin.write(header); if (body.length) child.stdin.write(body);
+  };
   const requests = new Set(), inspections = new Map();
   let sequence = 0;
   let readyResolve, readyReject;
@@ -46,10 +52,10 @@ export function launchShell({ assets, title, origin, home, handle }) {
         ...body.length ? { body } : {}, signal: controller.signal }));
       send({ type: 'response', id: message.id, status: response.status, statusText: response.statusText || 'OK',
         headers: [...response.headers].map(([key, value]) => `${key}: ${value}\r\n`).join(''),
-        body: Buffer.from(await response.arrayBuffer()).toString('base64') });
+        }, Buffer.from(await response.arrayBuffer()));
     } catch (error) {
       send({ type: 'response', id: message.id, status: 502, statusText: 'Application error',
-        headers: 'Content-Type: text/plain\r\n', body: Buffer.from(error.message).toString('base64') });
+        headers: 'Content-Type: text/plain\r\n' }, Buffer.from(error.message));
     } finally { requests.delete(controller); }
   });
   const closed = new Promise(resolve => child.once('close', code => {
