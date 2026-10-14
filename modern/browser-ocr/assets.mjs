@@ -1,3 +1,4 @@
+import { inflateAsset } from "./packed-asset.mjs";
 const urls = new Map(), decoded = new Map(), dataUrls = new Map();
 // Match Legal Browser OCR: a file-origin child worker cannot import sibling blob:null modules, and
 // a module worker started from a blob:null script never runs. These go to workers as data: URLs.
@@ -25,8 +26,7 @@ let unpacking;
  *  recognizer and PDF.js worker waits on it before it starts. */
 export function assetsReady() {
   return unpacking ??= Promise.all([...packed()].map(async (name) => {
-    const stream = new Blob([base64Bytes(packedValue(name))]).stream().pipeThrough(new DecompressionStream('gzip'));
-    const bytes = new Uint8Array(await new Response(stream).arrayBuffer());
+    const bytes = new Uint8Array(await (await inflateAsset(packedValue(name))).arrayBuffer());
     decoded.set(name, bytes);
     if (DATA_URLS[name]) dataUrls.set(name, await asDataUrl(bytes, DATA_URLS[name]));
   }));

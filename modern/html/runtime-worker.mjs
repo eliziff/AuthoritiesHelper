@@ -1,10 +1,11 @@
+import { inflateAsset } from "../browser-ocr/packed-asset.mjs";
 // The shared Authorities application operations, called directly from the page worker.
 import { Buffer } from "buffer";
 import fs from "./node/fs.mjs";
 import { ENGINE_PATH, process } from "./node/globals.mjs";
 import { createWasi } from "./wasi.mjs";
 import { mounted } from "node:sqlite";
-import { createStructureAddon, warmStructureAddon } from "./structure-addon.mjs";
+import { createStructureAddon } from "./structure-addon.mjs";
 import { ApplicationError } from "../../../backend/src/lib/applicationError";
 import { createAuthoritiesOperations } from "../../../backend/src/lib/authoritiesOperations";
 import { authoritySourceServices, resolveAuthoritiesSources } from "../../../backend/src/lib/authoritiesSourceResolution";
@@ -14,8 +15,8 @@ import { parseCacheAnswered, pdfParser } from "./pdf-parse-pool.mjs";
 
 
 // structureNative() loads its engine through process.dlopen: here, the same crate compiled
-// for WASI, compiled once when the runtime starts.
-let engineModule;
+// for WASI, compiled when the runtime first handles document work.
+let engineModule, engineAsset, engineReady;
 let recognitionId = 0;
 const recognition = new Map();
 function recognizePdf(bytes, sourceSha256, pages, signal, completed) {
@@ -49,16 +50,8 @@ process.dlopen = (module, filename) => {
   }, (bytes) => Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength), recognizePdf, pdfParser);
 };
 
-async function loadEngine(base64) {
-  // Uint8Array.fromBase64 decodes the engine in milliseconds; Uint8Array.from with a callback per
-  // character took a second.
-  const gzipped = Uint8Array.fromBase64?.(base64) ?? (() => {
-    const text = atob(base64), bytes = new Uint8Array(text.length);
-    for (let index = 0; index < text.length; index++) bytes[index] = text.charCodeAt(index);
-    return bytes;
-  })();
-  const stream = new Blob([gzipped]).stream().pipeThrough(new DecompressionStream("gzip"));
-  engineModule = await WebAssembly.compile(await new Response(stream).arrayBuffer());
+async function loadEngine(asset) {
+  engineModule = await WebAssembly.compile(await (await inflateAsset(asset)).arrayBuffer());
   pdfParser.start(engineModule);
   // structureNative() checks that its engine file exists before loading it.
   fs.mkdirSync("/engine", { recursive: true });
@@ -66,29 +59,12 @@ async function loadEngine(base64) {
 }
 let operations;
 const active = new Map();
-// The engine's memory grows to the largest work it has done and never shrinks. Once no operation is
-// under way, an engine grown past the limit is started afresh and readied again in part; the documents
-// it held are read again from the parse cache when next asked for.
-const ENGINE_MEMORY_LIMIT = 256 * 1024 * 1024;
-// An app asks for its next operation as one ends (a check, then its workbook), and the documents the engine holds
-// serve both; the engine is started afresh only once nothing has been asked for a while.
-const RECYCLE_AFTER_IDLE_MS = 2000;
-let recycleTimer;
-function recycleWhenIdle() {
-  clearTimeout(recycleTimer);
-  recycleTimer = setTimeout(() => {
-    const addon = structureNative();
-    if (active.size || addon.memoryBytes() <= ENGINE_MEMORY_LIMIT) return;
-    addon.recycle();
-    // Readied in part: readying every grammar holds this thread for seconds, and the user may ask for work at any moment.
-    warmStructureAddon(addon, { partly: true });
-  }, RECYCLE_AFTER_IDLE_MS);
-}
 async function handle({ id, operation, input }) {
-  clearTimeout(recycleTimer);
   const controller = new AbortController();
   active.set(id, controller);
   try {
+    if (!["mount-store", "alr-model", "alr-source-keys"].includes(operation)) await (engineReady ??= loadEngine(engineAsset));
+    controller.signal.throwIfAborted();
     const result = await operations[operation](input, { signal: controller.signal,
       progress: message => self.postMessage({ type: "progress", id, message }),
       quoteProgress: value => self.postMessage({ type: "quote-progress", id, value }) });
@@ -105,7 +81,7 @@ async function handle({ id, operation, input }) {
       self.postMessage({ type: "error", id, status, message: status === 500
         ? "Authorities could not complete that operation" : error.message });
     }
-  } finally { active.delete(id); recycleWhenIdle(); }
+  } finally { active.delete(id); }
 }
 
 self.onmessage = async ({ data }) => {
@@ -121,24 +97,20 @@ self.onmessage = async ({ data }) => {
     try {
       if (__NETWORK__ && data.providerServiceUrl) process.env.ALR_PROVIDER_SERVICE_URL = data.providerServiceUrl;
       if (__NETWORK__ && data.pdfServiceUrl) process.env.ALR_PDF_SERVICE_URL = data.pdfServiceUrl;
-      await loadEngine(data.engine);
+      engineAsset = data.engine;
       // A publisher's original the page kept from an earlier fetch stands in for one it blocked now.
       const sources = { ...authoritySourceServices, stored: keptPdf };
       operations = createAuthoritiesOperations((draft, _sources, signal, authorityId, progress, keptOnly) =>
         resolveAuthoritiesSources(draft, sources, signal, authorityId, progress, keptOnly, __CASE_MISMATCH_MODE__));
       // A page built with local stores (runtime-bundle.mjs) gives the runtime the files it reads them from.
       if (__LOCAL_STORES__) operations["mount-store"] = (await import("./local-stores.mjs")).mountStore;
+      for (const { operation, input } of data.settings ?? []) await operations[operation](input);
     } catch (error) {
       // A rejected handler does not reach the page's onerror; say so, or every request waits.
       self.postMessage({ type: "failed", message: error instanceof Error ? error.message : String(error) });
       return;
     }
     self.postMessage({ type: "ready" });
-    // Warm the common citation path only. PDF workers and other grammars start on demand,
-    // so a DOCX session does not retain an unused PDF engine or every jurisdiction's tables.
-    if (self.name !== "authorities-previews") {
-      try { warmStructureAddon(structureNative(), { partly: true }); } catch (error) { console.error(error); }
-    }
   } else if (data.type === "operation") {
     void handle(data);
   } else if (data.type === "abort") {

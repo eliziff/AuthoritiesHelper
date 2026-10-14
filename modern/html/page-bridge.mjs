@@ -1,3 +1,4 @@
+import { inflateAsset } from "../browser-ocr/packed-asset.mjs";
 import { holdBackground, recognizePdf, readRecognizedText, recognitionWaiting } from './recognize-pdf.mjs';
 import { readParseCache, writeParseCache } from './parse-cache-store.mjs';
 // Runs before the Authorities workspace in the self-contained HTML. It starts the
@@ -19,16 +20,11 @@ globalThis.AUTHORITIES_PDF_TEXT = {
       product.state.authorityOrder.findIndex(id=>product.state.authorities[id].source.sources?.some(source=>source.bindingRole===role)));
   },
 };
-const decode = (base64) => {
-  const text = atob(base64), bytes = new Uint8Array(text.length);
-  for (let index = 0; index < text.length; index += 1) bytes[index] = text.charCodeAt(index);
-  return bytes;
-};
-const inflate = (base64) => new Response(new Blob([decode(base64)]).stream().pipeThrough(new DecompressionStream("gzip")));
+const inflate = inflateAsset;
 // The viewer's PDF.js worker, inflated once when PDF.js first asks, as a data: URL: a module worker
 // started from a file:// page cannot load a blob:null one.
 let viewerWorker;
-globalThis.AUTHORITIES_PDF_WORKER_URL = () => viewerWorker ??= inflate(payload.viewerPdfWorker).blob()
+globalThis.AUTHORITIES_PDF_WORKER_URL = () => viewerWorker ??= inflate(payload.viewerPdfWorker).then(response => response.blob())
   .then((blob) => new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(reader.result); reader.onerror = () => reject(reader.error);
@@ -40,19 +36,28 @@ globalThis.AUTHORITIES_PDF_DECODERS = () => decoders ??= Promise.all(Object.entr
   .map(async ([name, packed]) => [name, await new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(reader.result); reader.onerror = () => reject(reader.error);
-    inflate(packed).blob().then((blob) => reader.readAsDataURL(new Blob([blob], { type: "application/wasm" })), reject);
+    inflate(packed).then(response => response.blob()).then((blob) => reader.readAsDataURL(new Blob([blob], { type: "application/wasm" })), reject);
   })])).then(Object.fromEntries);
-// Ready before the first PDF opens, once the page is idle.
-(globalThis.requestIdleCallback ?? setTimeout)(() => globalThis.AUTHORITIES_PDF_WORKER_URL().catch(() => {}));
 
 const pending = new Map();
 const recognition = new Map();
 let nextId = 0, failure = null;
 // The runtime is carried gzipped: it is inflated off the main thread, then started as its Worker.
-const runtimeCode = inflate(payload.runtime).blob();
+let runtimeCode;
+// Only successful configuration survives worker retirement; document data lives in the page store.
+const settings = new Map();
 function startRuntime(name) {
-let worker;
-const ready = runtimeCode.then((code) => new Promise((resolve, reject) => {
+let worker, idleTimer;
+const active = new Map();
+const quiet = () => {
+  clearTimeout(idleTimer);
+  if (!active.size) idleTimer = setTimeout(() => {
+    worker.terminate();
+    if (name === "authorities-previews") previews = undefined;
+    else runtime = undefined;
+  }, 5000);
+};
+const ready = (runtimeCode ??= inflate(payload.runtime).then(response => response.blob())).then((code) => new Promise((resolve, reject) => {
   const workerUrl = URL.createObjectURL(new Blob([code], { type: "text/javascript" }));
   worker = new Worker(workerUrl, { name });
   const stop = (message) => {
@@ -104,6 +109,16 @@ const ready = runtimeCode.then((code) => new Promise((resolve, reject) => {
     }
     if (data.type === "ready") { URL.revokeObjectURL(workerUrl); return resolve(); }
     if (data.type === "failed") return stop(data.message);
+    if (data.type === "result" || data.type === "error") {
+      const sent = active.get(data.id);
+      if (data.type === "result" && sent && (sent.operation === "mount-store" ||
+          sent.operation === "alr-source-keys" && sent.input.action !== "status")) {
+        const key = `${sent.operation}:${sent.input.store ?? ""}`;
+        settings.delete(key); settings.set(key, { operation: sent.operation, input: sent.input });
+      }
+      active.delete(data.id);
+      quiet();
+    }
     const request = pending.get(data.id);
     if (!request) return;
     if (data.type === "progress") request.progress?.(data.message);
@@ -111,18 +126,23 @@ const ready = runtimeCode.then((code) => new Promise((resolve, reject) => {
     else if (data.type === "result") request.resolve(data.result);
     else if (data.type === "error") request.fail(Object.assign(new Error(data.message), { status: data.status }));
   };
-  worker.postMessage({ type: "init", engine: payload.engine, providerServiceUrl: globalThis.ALR_PROVIDER_SERVICE_URL
+  worker.postMessage({ type: "init", settings: name === "authorities-previews" ? [] : [...settings.values()], engine: typeof payload.engine === "string" ? payload.engine : { url: new URL(payload.engine.url, location.href).href }, providerServiceUrl: globalThis.ALR_PROVIDER_SERVICE_URL
     ? new URL(globalThis.ALR_PROVIDER_SERVICE_URL, location.href).href : undefined,
     pdfServiceUrl: globalThis.ALR_PDF_SERVICE_URL ? new URL(globalThis.ALR_PDF_SERVICE_URL, location.href).href : undefined });
 }));
 ready.catch(() => { /* each request reports it */ });
-return { ready, post: (message, transfer) => worker.postMessage(message, transfer) };
+return { ready, post(message, transfer) {
+  clearTimeout(idleTimer);
+  if (message.type === "operation") active.set(message.id, message);
+  else if (message.type === "abort") { active.delete(message.id); quiet(); }
+  worker.postMessage(message, transfer);
+} };
 }
-const runtime = startRuntime("authorities-runtime");
+let runtime;
 // The book's cover and index previews are drawn by a runtime of their own, started when the first is
 // asked for, so a preview never waits behind a brief being read.
 let previews;
-const runtimeFor = (operation) => operation === "book-front" ? previews ??= startRuntime("authorities-previews") : runtime;
+const runtimeFor = (operation) => operation === "book-front" ? previews ??= startRuntime("authorities-previews") : runtime ??= startRuntime("authorities-runtime");
 
 globalThis.AUTHORITIES_OPERATIONS = async (operation, input, { signal, progress, quoteProgress } = {}) => {
   signal?.throwIfAborted();

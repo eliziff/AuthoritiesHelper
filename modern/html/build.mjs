@@ -143,7 +143,7 @@ export function withoutGrammarNotes(engine) {
  *  off the computer and holds no code that would (runtime-bundle.mjs). `workExtents: false` leaves the works pack
  *  out of its runtime (runtime-bundle.mjs). `connectSources`: the only hosts the page and its
  *  Workers may connect to (content-policy.mjs), in place of those its runtime reaches (undici.mjs); [] for none. */
-export async function buildAuthoritiesHtml(output, { release = false, app } = {}) {
+export async function buildAuthoritiesHtml(output, { release = false, app, asset } = {}) {
   // A dev page takes the engine built last, fast to compile; a release page only the optimized one,
   // and never one older than the engine's latest changes.
   const built = (profile) => path.join(engineCrate, `target/wasm32-wasip1/${profile}/legal_structure_node.wasm`);
@@ -197,11 +197,11 @@ export async function buildAuthoritiesHtml(output, { release = false, app } = {}
   const gzip = (bytes) => {
     const level = release ? 9 : 1, file = path.join(gzipDir, `${sha256(bytes)}-${level}`);
     packedNow.add(path.basename(file));
-    if (existsSync(file)) return readFileSync(file, "utf8");
+    if (existsSync(file)) { const packed = readFileSync(file, "utf8"); return asset ? asset(Buffer.from(packed, "base64")) : packed; }
     const packed = gzipSync(bytes, { level }).toString("base64");
     writeFileSync(`${file}.${process.pid}`, packed);
     renameSync(`${file}.${process.pid}`, file);
-    return packed;
+    return asset ? asset(Buffer.from(packed, "base64")) : packed;
   };
   const packed = ["model", "ortMjs", "ortWasm", "recognitionWorker", "layoutCore", "layoutWasm", "rasterWorker"];
   for (const name of packed) ocr[name] = gzip(Buffer.from(ocr[name], "base64"));
