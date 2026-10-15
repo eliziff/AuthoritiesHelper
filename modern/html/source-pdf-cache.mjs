@@ -6,12 +6,15 @@ import { hasPdfEndMarker } from "../../../shared/pdf-integrity.mjs";
 
 const waiting = new Map();
 let next = 0;
+// A desktop program's runtime (../webview/native-runtime.mjs) reaches its page another way.
+let post = (message) => self.postMessage(message);
+export const usePage = (send) => { post = send; };
 
 function ask(type, url) {
   const id = ++next;
   return new Promise((resolve) => {
     waiting.set(id, resolve);
-    self.postMessage({ type, id, url });
+    post({ type, id, url });
   });
 }
 /** The bytes the page kept for this URL, or null. */
@@ -25,13 +28,13 @@ export function pageAnswered({ id, bytes, body }) {
 
 /** Asks the page to keep a source's answer to a lookup until it expires. */
 export function keepAnswer(url, body, expires) {
-  self.postMessage({ type: "source-answer-fetched", url, body, expires });
+  post({ type: "source-answer-fetched", url, body, expires });
 }
 
 /** Asks the page to keep a whole PDF: one that starts as a PDF and ends with its end marker. */
 export async function keepPdf(url, bytes) {
   if (new TextDecoder().decode(bytes.subarray(0, 5)) !== "%PDF-" || !hasPdfEndMarker(bytes)) return;
   const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
-  self.postMessage({ type: "source-pdf-fetched", url,
+  post({ type: "source-pdf-fetched", url,
     sha256: [...digest].map((byte) => byte.toString(16).padStart(2, "0")).join("") });
 }

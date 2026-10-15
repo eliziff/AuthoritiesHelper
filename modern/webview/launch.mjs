@@ -47,7 +47,9 @@ export function launchShell({ assets, title, origin, home, handle }) {
       const url = new URL(message.url);
       if (url.origin !== origin) throw new Error('The native application origin was refused.');
       const body = Buffer.from(message.body, 'base64');
-      if (body.length > 132_000) throw new Error('The application request is too large.');
+      // The page's native runtime (native-runtime.mjs) is sent whole documents.
+      if (body.length > (url.pathname.startsWith('/runtime/') ? 128 * 1024 * 1024 : 132_000))
+        throw new Error('The application request is too large.');
       const response = await handle(new Request(url, { method: message.method, headers: message.headers,
         ...body.length ? { body } : {}, signal: controller.signal }));
       send({ type: 'response', id: message.id, status: response.status, statusText: response.statusText || 'OK',

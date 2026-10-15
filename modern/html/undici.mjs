@@ -42,6 +42,10 @@ async function directAnswer(url, init) {
   keepAnswer(url.href, body, Date.now() + (/"results"\s*:\s*\[\s*\]/u.test(body) ? ANSWER_TTL_MS : answerLifetime(url)));
   return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
 }
+// The legal source and publisher PDF services are asked over the network, except by a desktop program's runtime
+// (../webview/native-runtime.mjs), which asks the program's own.
+let serviceFetch = (url, init) => globalThis.fetch(url, init);
+export const useServiceFetch = (fetch) => { serviceFetch = fetch; };
 async function providerAnswer(url, init) {
   const endpoint = process.env.ALR_PROVIDER_SERVICE_URL || new URL("source", DEFAULT_SERVICE_URL).href;
   const headers = new Headers(init.headers), token = headers.get("authorization")?.replace(/^Token\s+/iu, "")
@@ -49,7 +53,7 @@ async function providerAnswer(url, init) {
   const source = new URL(url);
   source.searchParams.delete("api_key");
   const pdf = /pdf/iu.test(headers.get("accept") ?? "") || /(?:\.pdf|\/pdf)$/iu.test(source.pathname);
-  const response = await globalThis.fetch(endpoint, { method: "POST", signal: init.signal,
+  const response = await serviceFetch(endpoint, { method: "POST", signal: init.signal,
     credentials: "omit", referrerPolicy: "no-referrer", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ source: source.href, method: init.method ?? "GET",
       ...init.body ? { body: String(init.body) } : {}, ...token ? { token } : {},
@@ -89,11 +93,11 @@ async function servicePdf(url, init) {
   service.searchParams.set("source", url.href);
   const request = { signal: init.signal, credentials: "omit", referrerPolicy: "no-referrer" };
   let response;
-  try { response = await globalThis.fetch(service, request); }
+  try { response = await serviceFetch(service, request); }
   catch (error) {
     // The service answers a page whose address it does not serve without letting it read the
     // answer, which fails as a network failure does; an opaque request resolves for any answer.
-    if (!(error instanceof TypeError) || !await globalThis.fetch(service, { ...request, method: "HEAD",
+    if (!(error instanceof TypeError) || !await serviceFetch(service, { ...request, method: "HEAD",
       mode: "no-cors" }).then(() => true, () => false)) throw error;
     throw Object.assign(new Error("The publisher PDF service does not serve this page's address."),
       { code: "origin_denied" });

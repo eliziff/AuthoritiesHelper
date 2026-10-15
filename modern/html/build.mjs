@@ -142,17 +142,20 @@ export function withoutGrammarNotes(engine) {
  *  the National Archives for UK decisions (runtime-bundle.mjs). `network: false` gives it a runtime that reaches nothing
  *  off the computer and holds no code that would (runtime-bundle.mjs). `workExtents: false` leaves the works pack
  *  out of its runtime (runtime-bundle.mjs). `connectSources`: the only hosts the page and its
- *  Workers may connect to (content-policy.mjs), in place of those its runtime reaches (undici.mjs); [] for none. */
+ *  Workers may connect to (content-policy.mjs), in place of those its runtime reaches (undici.mjs); [] for none.
+ *  `nativeRuntime`: the page of a desktop program that runs the runtime itself (../webview/native-runtime.mjs): it
+ *  carries neither the runtime nor its engine. */
 export async function buildAuthoritiesHtml(output, { release = false, app, asset } = {}) {
+  const native = !!app?.nativeRuntime;
   // A dev page takes the engine built last, fast to compile; a release page only the optimized one,
   // and never one older than the engine's latest changes.
   const built = (profile) => path.join(engineCrate, `target/wasm32-wasip1/${profile}/legal_structure_node.wasm`);
   const stamp = (file) => statSync(file, { throwIfNoEntry: false })?.mtimeMs ?? 0;
   const artifact = release || stamp(built("release")) >= stamp(built("debug")) ? built("release") : built("debug");
-  if (!existsSync(artifact)) throw new Error(`Browser engine missing. Run node AuthoritiesHelper/modern/html/build-engine.mjs${release ? " --release" : ""} first.`);
-  if (release && stamp(built("debug")) > stamp(artifact))
+  if (!native && !existsSync(artifact)) throw new Error(`Browser engine missing. Run node AuthoritiesHelper/modern/html/build-engine.mjs${release ? " --release" : ""} first.`);
+  if (!native && release && stamp(built("debug")) > stamp(artifact))
     throw new Error("The optimized engine is older than the engine's latest build. Run node AuthoritiesHelper/modern/html/build-engine.mjs --release first.");
-  const engine = withoutGrammarNotes(readFileSync(artifact));
+  const engine = native ? null : withoutGrammarNotes(readFileSync(artifact));
   // The build's own code: a change to how it builds reruns its steps.
   const builder = [import.meta.filename, path.join(here, "runtime-bundle.mjs"),
     path.join(here, "../scripts/authorities-package/bundle.mjs")];
@@ -160,7 +163,7 @@ export async function buildAuthoritiesHtml(output, { release = false, app, asset
     .filter(([name]) => name.startsWith("VITE_") || ['NODE_ENV', 'BEAVER_API_ORIGIN'].includes(name)).sort());
   const [runtime, { html, script, css }, assets, rasterWorker] = await Promise.all([
     // An app's runtime is its own checkout's: two copies of one app (a checkout and a packaging copy) share a name.
-    cached(cacheDir, app ? `runtime-${app.name}` : "runtime",
+    native ? { modules: 0 } : cached(cacheDir, app ? `runtime-${app.name}` : "runtime",
       [app?.entry, app?.localStores && "local-stores", app?.ukCaseLaw && "uk-case-law", app?.network === false && "no-network",
         app?.workExtents === false && "no-work-extents", app?.citedCases]
         .filter(Boolean).join(" "), async () => {
@@ -206,7 +209,7 @@ export async function buildAuthoritiesHtml(output, { release = false, app, asset
   const packed = ["model", "ortMjs", "ortWasm", "recognitionWorker", "layoutCore", "layoutWasm", "rasterWorker"];
   for (const name of packed) ocr[name] = gzip(Buffer.from(ocr[name], "base64"));
   const payload = {
-    runtime: gzip(Buffer.from(runtime.code)), ocr: { ...ocr, gzip: packed }, engine: gzip(engine),
+    ...!native && { runtime: gzip(Buffer.from(runtime.code)), engine: gzip(engine) }, ocr: { ...ocr, gzip: packed },
     viewerPdfWorker: gzip(pdfWorker),
     pdfDecoders: Object.fromEntries(["jbig2.wasm", "openjpeg.wasm", "qcms_bg.wasm"]
       .map((name) => [name, gzip(readFileSync(path.join(pdfjs, "wasm", name)))])),

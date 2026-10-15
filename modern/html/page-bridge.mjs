@@ -1,6 +1,7 @@
 import { inflateAsset } from "../browser-ocr/packed-asset.mjs";
 import { holdBackground, recognizePdf, readRecognizedText, recognitionWaiting } from './recognize-pdf.mjs';
 import { readParseCache, writeParseCache } from './parse-cache-store.mjs';
+import { decodeFrame, encodeFrame } from './runtime-frames.mjs';
 // Runs before the Authorities workspace in the self-contained HTML. It starts the
 // runtime Worker, supplies the direct Authorities operation client and serves
 // PDF.js standard fonts. External requests still go to the network.
@@ -42,27 +43,52 @@ globalThis.AUTHORITIES_PDF_DECODERS = () => decoders ??= Promise.all(Object.entr
 const pending = new Map();
 const recognition = new Map();
 let nextId = 0, failure = null;
+// A desktop program runs the runtime itself, natively, and names where the page reaches it
+// (../webview/native-runtime.mjs); its page carries no runtime or engine.
+const native = globalThis.AUTHORITIES_NATIVE_RUNTIME;
 // The runtime is carried gzipped: it is inflated off the main thread, then started as its Worker.
 let runtimeCode;
-// Only successful configuration survives worker retirement; document data lives in the page store.
-const settings = new Map();
+
+/** The program's runtime as a Worker is spoken to: messages go in POST bodies, in order, and come back from a
+ *  request the program holds until it has some. Bytes travel as bytes (runtime-frames.mjs). */
+function nativeChannel(base) {
+  const session = crypto.randomUUID(), outgoing = [];
+  const address = (path) => new URL(`${base}${path}?session=${session}`, location.href);
+  let sending = false, stopped = false;
+  const channel = { onmessage: null, onerror: null, terminate() { stopped = true; } };
+  const fail = (error) => { if (!stopped) { stopped = true; channel.onerror?.({ message: error.message }); } };
+  const answered = async (response) => {
+    if (!response.ok) throw new Error(await response.text().catch(() => "") || `the program answered ${response.status}`);
+    return response;
+  };
+  async function send() {
+    sending = true;
+    try {
+      while (outgoing.length && !stopped)
+        await fetch(address("send"), { method: "POST", body: encodeFrame(outgoing.splice(0)),
+          headers: { "Content-Type": "application/octet-stream" } }).then(answered);
+    } catch (error) { fail(error); } finally { sending = false; }
+  }
+  channel.postMessage = (message) => { outgoing.push(message); if (!sending) void send(); };
+  void (async () => {
+    while (!stopped) {
+      const response = await fetch(address("poll"), { cache: "no-store" }).then(answered);
+      if (response.status === 204) continue;
+      for (const data of decodeFrame(new Uint8Array(await response.arrayBuffer()))) if (!stopped) channel.onmessage?.({ data });
+    }
+  })().catch(fail);
+  return channel;
+}
+
 function startRuntime(name) {
-let worker, idleTimer;
-const active = new Map();
-const quiet = () => {
-  clearTimeout(idleTimer);
-  if (!active.size) idleTimer = setTimeout(() => {
-    worker.terminate();
-    if (name === "authorities-previews") previews = undefined;
-    else runtime = undefined;
-  }, 5000);
-};
-const ready = (runtimeCode ??= inflate(payload.runtime).then(response => response.blob())).then((code) => new Promise((resolve, reject) => {
-  const workerUrl = URL.createObjectURL(new Blob([code], { type: "text/javascript" }));
-  worker = new Worker(workerUrl, { name });
+let worker;
+const ready = (native ? Promise.resolve(null) : runtimeCode ??= inflate(payload.runtime).then(response => response.blob()))
+  .then((code) => new Promise((resolve, reject) => {
+  const workerUrl = code && URL.createObjectURL(new Blob([code], { type: "text/javascript" }));
+  worker = native ? nativeChannel(native) : new Worker(workerUrl, { name });
   const stop = (message) => {
     // Before start-up this rejects `ready`; afterwards it ends every open request.
-    URL.revokeObjectURL(workerUrl);
+    if (workerUrl) URL.revokeObjectURL(workerUrl);
     for (const controller of recognition.values()) controller.abort();
     recognition.clear();
     failure = new Error(`Authorities stopped working: ${message}. Reload the page to continue.`);
@@ -107,18 +133,8 @@ const ready = (runtimeCode ??= inflate(payload.runtime).then(response => respons
       Promise.resolve(globalThis.AUTHORITIES_SOURCE_ANSWERS?.remember(data.url, data.body, data.expires)).catch(() => {});
       return;
     }
-    if (data.type === "ready") { URL.revokeObjectURL(workerUrl); return resolve(); }
+    if (data.type === "ready") { if (workerUrl) URL.revokeObjectURL(workerUrl); return resolve(); }
     if (data.type === "failed") return stop(data.message);
-    if (data.type === "result" || data.type === "error") {
-      const sent = active.get(data.id);
-      if (data.type === "result" && sent && (sent.operation === "mount-store" ||
-          sent.operation === "alr-source-keys" && sent.input.action !== "status")) {
-        const key = `${sent.operation}:${sent.input.store ?? ""}`;
-        settings.delete(key); settings.set(key, { operation: sent.operation, input: sent.input });
-      }
-      active.delete(data.id);
-      quiet();
-    }
     const request = pending.get(data.id);
     if (!request) return;
     if (data.type === "progress") request.progress?.(data.message);
@@ -126,23 +142,22 @@ const ready = (runtimeCode ??= inflate(payload.runtime).then(response => respons
     else if (data.type === "result") request.resolve(data.result);
     else if (data.type === "error") request.fail(Object.assign(new Error(data.message), { status: data.status }));
   };
-  worker.postMessage({ type: "init", settings: name === "authorities-previews" ? [] : [...settings.values()], engine: typeof payload.engine === "string" ? payload.engine : { url: new URL(payload.engine.url, location.href).href }, providerServiceUrl: globalThis.ALR_PROVIDER_SERVICE_URL
+  worker.postMessage(native ? { type: "init" } : { type: "init", engine: typeof payload.engine === "string" ? payload.engine
+    : { url: new URL(payload.engine.url, location.href).href }, providerServiceUrl: globalThis.ALR_PROVIDER_SERVICE_URL
     ? new URL(globalThis.ALR_PROVIDER_SERVICE_URL, location.href).href : undefined,
     pdfServiceUrl: globalThis.ALR_PDF_SERVICE_URL ? new URL(globalThis.ALR_PDF_SERVICE_URL, location.href).href : undefined });
 }));
 ready.catch(() => { /* each request reports it */ });
-return { ready, post(message, transfer) {
-  clearTimeout(idleTimer);
-  if (message.type === "operation") active.set(message.id, message);
-  else if (message.type === "abort") { active.delete(message.id); quiet(); }
-  worker.postMessage(message, transfer);
-} };
+return { ready, post: (message, transfer) => worker.postMessage(message, transfer) };
 }
 let runtime;
 // The book's cover and index previews are drawn by a runtime of their own, started when the first is
-// asked for, so a preview never waits behind a brief being read.
+// asked for, so a preview never waits behind a brief being read. The program's runtime runs operations side by side.
 let previews;
-const runtimeFor = (operation) => operation === "book-front" ? previews ??= startRuntime("authorities-previews") : runtime ??= startRuntime("authorities-runtime");
+const runtimeFor = (operation) => operation === "book-front" && !native ? previews ??= startRuntime("authorities-previews")
+  : runtime ??= startRuntime("authorities-runtime");
+// The program loads its runtime once the page has drawn, so the first request finds it ready.
+if (native) (globalThis.requestIdleCallback ?? setTimeout)(() => { runtime ??= startRuntime("authorities-runtime"); }, { timeout: 2000 });
 
 globalThis.AUTHORITIES_OPERATIONS = async (operation, input, { signal, progress, quoteProgress } = {}) => {
   signal?.throwIfAborted();
