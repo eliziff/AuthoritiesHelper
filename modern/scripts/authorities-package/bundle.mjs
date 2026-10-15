@@ -43,6 +43,10 @@ export const sharedContractSource = {
       const source = path.join(repo, "shared/contracts", path.basename(input).replace(/\.mjs$/, ".mts"));
       return existsSync(source) ? { path: source } : null;
     });
+    // "mike/shared/…" is this checkout's shared folder, as the frontend's build has it: a worktree's node_modules
+    // may be another checkout's.
+    build.onResolve({ filter: /^mike\/shared\// }, ({ path: input, kind, resolveDir }) =>
+      build.resolve(path.join(repo, "shared", input.slice("mike/shared/".length)), { kind, resolveDir }));
   },
 };
 export const localOnly = {

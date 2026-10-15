@@ -166,5 +166,5 @@ export function createNativeRuntime({ createOperations, mountStore, caseMismatch
     }
     throw new ApplicationError(404, "Not found.");
   }
-  return { handle, load };
+  return { handle };
 }

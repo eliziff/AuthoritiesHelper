@@ -204,7 +204,12 @@ fn start(shell: &'static Shell) {
         }
         Ok(())
     }));
-    if let Err(error) = unsafe { CreateCoreWebView2EnvironmentWithOptions(PCWSTR::null(), &shell.profile, None, &created) } {
+    // Software rendering: the application's pages scroll at the same frame times without a GPU process
+    // (50-180 MiB of it).
+    let options = CoreWebView2EnvironmentOptions::default();
+    unsafe { options.set_additional_browser_arguments("--disable-gpu".to_owned()); }
+    let options: ICoreWebView2EnvironmentOptions = options.into();
+    if let Err(error) = unsafe { CreateCoreWebView2EnvironmentWithOptions(PCWSTR::null(), &shell.profile, &options, &created) } {
         fail_with(&error);
     }
 }
@@ -453,6 +458,9 @@ fn expire(shell: &'static Shell) {
     if shell.pending.borrow().is_empty() { unsafe { let _ = KillTimer(Some(shell.window.get()), EXPIRY_TIMER); } }
 }
 
+fn quit() { if let Some(shell) = shell() { unsafe { PostQuitMessage(shell.exit_code.get()); } } }
+extern "system" fn quit_later(_: HWND, _: u32, _: usize, _: u32) { quit(); }
+
 extern "system" fn window_procedure(window: HWND, message: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     unsafe {
         match message {
@@ -480,9 +488,24 @@ extern "system" fn window_procedure(window: HWND, message: u32, wparam: WPARAM, 
             WM_TIMER if wparam.0 == EXPIRY_TIMER => { if let Some(shell) = shell() { expire(shell); } LRESULT(0) }
             WM_DESTROY => {
                 if let Some(shell) = shell() {
+                    // A request still waiting (the page's held runtime poll) would keep WebView2's browser process
+                    // alive long after the window: answer each before closing.
+                    let waiting: Vec<Waiting> = shell.pending.borrow_mut().drain().map(|(_, waiting)| waiting).collect();
+                    for waiting in waiting { respond_error(&waiting.args, &waiting.deferral, "The window closed."); }
                     let view = shell.view.borrow_mut().take();
-                if let Some(view) = view { let _ = view.controller.Close(); }
-                    PostQuitMessage(shell.exit_code.get());
+                    // Quit once WebView2's browser process has gone, or after five seconds: a host that exits first
+                    // can leave it running for half a minute.
+                    let waits = view.is_some_and(|view| {
+                        let quit = BrowserProcessExitedEventHandler::create(Box::new(|_, _| { quit(); Ok(()) }));
+                        let mut token = 0i64;
+                        let waits = view.environment.cast::<ICoreWebView2Environment5>()
+                            .and_then(|environment| environment.add_BrowserProcessExited(&quit, &mut token)).is_ok();
+                        let _ = view.controller.Close();
+                        // The environment reports the exit only while it lives.
+                        std::mem::forget(view.environment);
+                        waits
+                    });
+                    if waits { SetTimer(None, 0, 5000, Some(quit_later)); } else { quit(); }
                 }
                 LRESULT(0)
             }

@@ -4,6 +4,7 @@
 // local data is used, and no name lookups of its own), and reads the local stores where they lie (node-sqlite.mjs,
 // node-fs.mjs, native-stores.mjs). `ukCaseLaw` and `network` are the page's runtime's options (../html/runtime-bundle.mjs).
 import path from "node:path";
+import { sharedContractSource } from "../scripts/authorities-package/bundle.mjs";
 
 const inside = (directory, file) => !path.relative(directory, file).startsWith("..");
 
@@ -17,7 +18,8 @@ export function nativeRuntimePlugin({ ukCaseLaw = false, network = true, modern 
       const options = build.initialOptions;
       options.define = { ...options.define, __UK_CASE_LAW__: String(ukCaseLaw), __NETWORK__: String(network) };
       options.loader = { ...options.loader, ".wasm": "binary" };
-      const node = ({ importer }) => !/[\\/]node_modules[\\/]/u.test(importer);
+      sharedContractSource.setup(build);
+      const node = ({ importer }) =>!/[\\/]node_modules[\\/]/u.test(importer);
       build.onResolve({ filter: /^undici$/ }, (args) => node(args) ? { path: path.join(html, "undici.mjs") } : null);
       build.onResolve({ filter: /^(?:node:)?dns(?:\/promises)?$/ }, (args) =>
         node(args) ? { path: path.join(html, "node/dns.mjs") } : null);
