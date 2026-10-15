@@ -1,0 +1,38 @@
+[package]
+name = "webview-shell"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "WebViewShell"
+path = "src/main.rs"
+
+[dependencies]
+base64 = "0.22"
+serde_json = "1"
+webview2-com = "0.39"
+windows = { version = "0.62", features = [
+  "Win32_Foundation",
+  "Win32_Graphics_Gdi",
+  "Win32_System_Com",
+  "Win32_System_Com_StructuredStorage",
+  "Win32_System_LibraryLoader",
+  "Win32_System_Memory",
+  "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_UI_Shell",
+  "Win32_UI_WindowsAndMessaging",
+] }
+
+[build-dependencies]
+embed-resource = "3"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+# Its own workspace: the crate is built alone, into its own target directory.
+[workspace]

@@ -6,7 +6,7 @@ import { createInterface } from 'node:readline';
 
 /** A native window over application Request/Response operations. No network listener. */
 export function launchShell({ assets, title, origin, home, handle }) {
-  const files = ['WebViewShell.exe', 'Microsoft.Web.WebView2.Core.dll', 'Microsoft.Web.WebView2.WinForms.dll', 'WebView2Loader.dll'];
+  const files = ['WebViewShell.exe'];
   const directory = path.join(home, 'shell');
   mkdirSync(directory, { recursive: true });
   for (const file of files) {

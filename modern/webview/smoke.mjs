@@ -4,6 +4,7 @@ import { mkdirSync, readFileSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import path from 'node:path';
 import { setTimeout } from 'node:timers/promises';
+import { buildShell } from './build.mjs';
 import { launchShell } from './launch.mjs';
 
 const root = path.resolve(import.meta.dirname, '../../..');
@@ -11,6 +12,8 @@ const output = path.join(root, '.tmp/alr-shell-smoke');
 const home = path.join(output, 'profile');
 mkdirSync(output, { recursive: true });
 const origin = 'https://shell-smoke.invalid';
+const shell = path.resolve(import.meta.dirname, '../out/webview');
+await buildShell(shell);
 const page = `<!doctype html><meta charset="utf-8"><title>Native host check</title>
 <h1>Native host check</h1><p id="result">Checking worker requests…</p><script>
 window.check = { done: false };
@@ -26,7 +29,7 @@ document.querySelector('#result').textContent = data.error || 'Worker ranges and
 
 async function run() {
   const host = launchShell({ title: 'Native host check', origin, home,
-    assets: file => readFileSync(path.resolve(import.meta.dirname, '../out/webview', file)),
+    assets: file => readFileSync(path.join(shell, file)),
     async handle(request) {
       const url = new URL(request.url);
       if (url.pathname === '/') return new Response(page + '<!--' + 'large page '.repeat(200000) + '-->', { headers: { 'Content-Type': 'text/html; charset=utf-8' } });

@@ -1,16 +1,18 @@
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const here = path.dirname(fileURLToPath(import.meta.url));
+// One build location whether reached through a checkout's junction or directly.
+const crate = realpathSync(path.join(path.dirname(fileURLToPath(import.meta.url)), 'shell'));
 const VERSION = '1.0.4258.31';
 const SHA256 = '56f7f4b8bf9aee4b8efefbbdd4f67d5f74ebd1b100ed0806da71bf76af481aa9';
-const FILES = ['Microsoft.Web.WebView2.Core.dll', 'Microsoft.Web.WebView2.WinForms.dll', 'WebView2Loader.dll'];
 
+/** Builds the native window (WebView2's loader is linked into it); returns the files the program carries. */
 export async function buildShell(out, { icon } = {}) {
-  const cache = path.resolve(here, '../out/.cache/webview2');
+  const cache = path.resolve(crate, '../../out/.cache/webview2');
   mkdirSync(cache, { recursive: true }); mkdirSync(out, { recursive: true });
   const name = `microsoft.web.webview2.${VERSION}.nupkg`, archive = path.join(cache, name);
   if (!existsSync(archive)) {
@@ -20,18 +22,18 @@ export async function buildShell(out, { icon } = {}) {
   }
   if (createHash('sha256').update(readFileSync(archive)).digest('hex') !== SHA256)
     throw new Error('The WebView2 SDK archive does not match the pinned SHA-256.');
-  execFileSync(path.join(process.env.SystemRoot, 'System32/tar.exe'), ['-xf', name,
-    'lib/net462/Microsoft.Web.WebView2.Core.dll', 'lib/net462/Microsoft.Web.WebView2.WinForms.dll',
-    'runtimes/win-x64/native/WebView2Loader.dll', 'LICENSE.txt', 'NOTICE.txt'], { cwd: cache });
+  execFileSync(path.join(process.env.SystemRoot, 'System32/tar.exe'), ['-xf', name, 'LICENSE.txt', 'NOTICE.txt'], { cwd: cache });
   for (const file of ['LICENSE.txt', 'NOTICE.txt']) copyFileSync(path.join(cache, file), path.join(out, file));
-  for (const file of FILES) copyFileSync(path.join(cache,
-    file === 'WebView2Loader.dll' ? 'runtimes/win-x64/native' : 'lib/net462', file), path.join(out, file));
-  const compiler = path.join(process.env.SystemRoot, 'Microsoft.NET/Framework64/v4.0.30319/csc.exe');
-  execFileSync(compiler, ['/nologo', '/target:winexe', '/platform:x64', '/optimize+', '/out:' + path.join(out, 'WebViewShell.exe'),
-    '/win32manifest:' + path.join(here, 'app.manifest'),
-    ...icon ? ['/win32icon:' + icon] : [],
-    '/r:System.Windows.Forms.dll', '/r:System.Drawing.dll', '/r:System.Web.Extensions.dll',
-    ...FILES.filter(file => file.startsWith('Microsoft.')).map(file => '/r:' + path.join(out, file)),
-    path.join(here, 'Shell.cs')], { stdio: 'inherit' });
-  return ['WebViewShell.exe', ...FILES].map(file => path.join(out, file));
+  const target = path.join(crate, 'target'), cargoHome = process.env.CARGO_HOME ?? path.join(homedir(), '.cargo');
+  execFileSync('cargo', ['build', '--release', '--locked', '--manifest-path', path.join(crate, 'Cargo.toml'), '--target-dir', target], {
+    cwd: crate, stdio: 'inherit', env: { ...process.env,
+      WEBVIEW_SHELL_ICON: icon ? path.resolve(icon) : '',
+      // Fat LTO has no use for an inherited incremental release profile.
+      CARGO_PROFILE_RELEASE_INCREMENTAL: 'false',
+      // Encoded: the checkout's path contains spaces.
+      CARGO_ENCODED_RUSTFLAGS: ['-Ctarget-feature=+crt-static', `--remap-path-prefix=${crate}=webview-shell`,
+        `--remap-path-prefix=${cargoHome}=cargo`].join('\x1f') } });
+  const shell = path.join(out, 'WebViewShell.exe');
+  copyFileSync(path.join(target, 'release/WebViewShell.exe'), shell);
+  return [shell];
 }
