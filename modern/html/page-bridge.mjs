@@ -8,7 +8,21 @@ import { decodeFrame, encodeFrame } from './runtime-frames.mjs';
 /* global __AUTHORITIES_PAYLOAD__ */
 
 const FONTS = "/pdfjs-standard-fonts/";
-const payload = __AUTHORITIES_PAYLOAD__;
+// The payload's shape; each large string sits in a data element after the page (build.mjs), read when first used.
+const parsed = new Promise((resolve) => document.readyState === "loading"
+  ? document.addEventListener("DOMContentLoaded", resolve, { once: true }) : resolve());
+const blocks = new Map();
+const block = (index) => {
+  if (!blocks.has(index)) {
+    const element = document.getElementById(`authorities-payload-${index}`);
+    blocks.set(index, element.textContent);
+    element.remove();
+  }
+  return blocks.get(index);
+};
+const lazy = (value) => !value || typeof value !== "object" ? value : "#" in value ? block(value["#"])
+  : new Proxy(value, { get: (target, key) => lazy(target[key]) });
+const payload = lazy(__AUTHORITIES_PAYLOAD__);
 globalThis.AUTHORITIES_ASSETS = payload.ocr;
 globalThis.AUTHORITIES_PDF_TEXT = {
   read: readRecognizedText,
@@ -25,7 +39,7 @@ const inflate = inflateAsset;
 // The viewer's PDF.js worker, inflated once when PDF.js first asks, as a data: URL: a module worker
 // started from a file:// page cannot load a blob:null one.
 let viewerWorker;
-globalThis.AUTHORITIES_PDF_WORKER_URL = () => viewerWorker ??= inflate(payload.viewerPdfWorker).then(response => response.blob())
+globalThis.AUTHORITIES_PDF_WORKER_URL = () => viewerWorker ??= parsed.then(() => inflate(payload.viewerPdfWorker)).then(response => response.blob())
   .then((blob) => new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(reader.result); reader.onerror = () => reject(reader.error);
@@ -33,12 +47,12 @@ globalThis.AUTHORITIES_PDF_WORKER_URL = () => viewerWorker ??= inflate(payload.v
   }));
 // PDF.js's image decoders, by file name, as data: URLs for the viewer and the recognizer alike.
 let decoders;
-globalThis.AUTHORITIES_PDF_DECODERS = () => decoders ??= Promise.all(Object.entries(payload.pdfDecoders)
+globalThis.AUTHORITIES_PDF_DECODERS = () => decoders ??= parsed.then(() => Promise.all(Object.entries(payload.pdfDecoders)
   .map(async ([name, packed]) => [name, await new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(reader.result); reader.onerror = () => reject(reader.error);
     inflate(packed).then(response => response.blob()).then((blob) => reader.readAsDataURL(new Blob([blob], { type: "application/wasm" })), reject);
-  })])).then(Object.fromEntries);
+  })]))).then(Object.fromEntries);
 
 const pending = new Map();
 const recognition = new Map();
@@ -82,7 +96,7 @@ function nativeChannel(base) {
 
 function startRuntime(name) {
 let worker;
-const ready = (native ? Promise.resolve(null) : runtimeCode ??= inflate(payload.runtime).then(response => response.blob()))
+const ready = (native ? Promise.resolve(null) : runtimeCode ??= parsed.then(() => inflate(payload.runtime)).then(response => response.blob()))
   .then((code) => new Promise((resolve, reject) => {
   const workerUrl = code && URL.createObjectURL(new Blob([code], { type: "text/javascript" }));
   worker = native ? nativeChannel(native) : new Worker(workerUrl, { name });
@@ -188,13 +202,13 @@ function localRoute(url, page) {
   return url.origin === page.origin ? url.pathname : null;
 }
 
-const fonts = new Map(Object.entries(payload.fonts));
 const nativeFetch = globalThis.fetch.bind(globalThis);
 globalThis.fetch = async (input, init) => {
   const url = new URL(input instanceof Request ? input.url : String(input), location.href);
   const route = localRoute(url, location);
   if (route?.startsWith(FONTS)) {
-    const font = fonts.get(route.slice(FONTS.length));
+    await parsed;
+    const name = route.slice(FONTS.length), font = Object.hasOwn(payload.fonts, name) && payload.fonts[name];
     // The fonts are carried gzipped and inflated as PDF.js asks for each.
     return font ? inflate(font) : new Response(null, { status: 404 });
   }

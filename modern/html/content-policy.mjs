@@ -14,9 +14,10 @@ export function withContentSecurityPolicy(html, connectSources) {
     if (open < 0) break;
     const body = html.indexOf(">", open) + 1, close = html.indexOf("</script>", body);
     assert(!/\bsrc=/u.test(html.slice(open, body)), "A built page carries its scripts inline");
-    // The browser hashes the script as parsed: its line endings made \n.
+    // The browser hashes the script as parsed: its line endings made \n. Data blocks never run.
     const code = html.slice(body, close).replace(/\r\n?/gu, "\n");
-    hashes.push(`'sha256-${createHash("sha256").update(code, "utf8").digest("base64")}'`);
+    if (!/\btype="text\/plain"/u.test(html.slice(open, body)))
+      hashes.push(`'sha256-${createHash("sha256").update(code, "utf8").digest("base64")}'`);
     at = close + "</script>".length;
   }
   assert(hashes.length > 0, "A built page has a script");

@@ -217,11 +217,15 @@ export async function buildAuthoritiesHtml(output, { release = false, app, asset
       .map((name) => [name, gzip(readFileSync(path.join(fonts, name)))])),
   };
   for (const name of readdirSync(gzipDir)) if (!packedNow.has(name)) rmSync(path.join(gzipDir, name), { force: true });
-  // The payload is data: it goes into the bundled bridge as JSON, not through the bundler.
+  // The payload is data, never script: each large string goes in a data element after the page, which the
+  // browser neither compiles nor runs, and the bridge carries the payload's shape, naming each element.
+  const blocks = [];
+  const shape = JSON.stringify(payload, (_key, value) =>
+    typeof value === "string" && value.length > 1024 ? { "#": blocks.push(value) - 1 } : value);
   const [bridgeHead, ...bridgeTail] = (await bundleScript("page-bridge.mjs",
     { __OCR_RUNTIME_SHA256__: JSON.stringify(ocrKey) })).split("__AUTHORITIES_PAYLOAD__");
   assert.equal(bridgeTail.length, 1, "The page bridge must read its payload once");
-  const bridge = bridgeHead + JSON.stringify(payload) + bridgeTail[0];
+  const bridge = bridgeHead + shape + bridgeTail[0];
   // Drop the build's external tags; the page carries everything inline.
   const page = html.replace(/<title>[^<]*<\/title>/u, () => `<title>${app?.title ?? "Authorities"}</title>`)
     .replace(/(<meta name="description" content=")[^"]*"/u, (tag, head) => app?.description ? `${head}${app.description}"` : tag)
@@ -229,7 +233,9 @@ export async function buildAuthoritiesHtml(output, { release = false, app, asset
     .replace(/<link\b[^>]*\brel="(?:stylesheet|modulepreload|icon)"[^>]*>\s*/gu, "")
     .replace("</head>", () => `<style>${css.replaceAll("</style", "<\\/style")}</style>\n` +
       `<script>${inline(bridge)}</script>\n</head>`)
-    .replace("</body>", () => `<script type="module">${inline(script)}</script>\n</body>`);
+    // The app starts as soon as it is read, ahead of the payload, so the first screen draws while the rest parses.
+    .replace("</body>", () => `<script type="module" async>${inline(script)}</script>\n${blocks.map((block, index) =>
+      `<script type="text/plain" id="authorities-payload-${index}">${block}</script>`).join("\n")}\n</body>`);
   assert(!/\b(?:src|href)="\/(?:assets|src)\//u.test(page), "Authorities.html still references a build file");
   // The hosts the runtime reaches (undici.mjs), unless the app names its own.
   const connectSources = app?.connectSources ?? ["https://api.a2aj.ca", "https://laws-lois.justice.gc.ca",
