@@ -5,7 +5,10 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { localOnly, sharedContractSource } from "../scripts/authorities-package/bundle.mjs";
 
-const here = import.meta.dirname, repo = path.resolve(here, "../../.."), backend = path.join(repo, "backend");
+// The Beaver checkout being built: the one a build names (BEAVER_CHECKOUT; a worktree reaches this folder by a link),
+// else the one holding this folder.
+const repo = path.resolve(process.env.BEAVER_CHECKOUT || path.join(import.meta.dirname, "../../.."));
+const here = path.join(repo, "AuthoritiesHelper/modern/html"), backend = path.join(repo, "backend");
 const require = createRequire(import.meta.url);
 const own = (file) => path.join(here, file);
 const SUBSTITUTES = {

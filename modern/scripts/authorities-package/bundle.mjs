@@ -5,7 +5,9 @@ import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 
 // AuthoritiesHelper owns this deployment adapter; Beaver supplies the shared core.
-const repo = path.resolve(import.meta.dirname, "../../../..");
+// The Beaver checkout being built: the one a build names (BEAVER_CHECKOUT; a worktree reaches this folder by a link),
+// else the one holding this folder.
+const repo = path.resolve(process.env.BEAVER_CHECKOUT || path.join(import.meta.dirname, "../../../.."));
 const backend = path.join(repo, "backend");
 const frontend = path.join(repo, "frontend");
 const slash = (value) => value.replaceAll("\\", "/");

@@ -17,7 +17,10 @@ import { cached, inputStamp } from "./build-cache.mjs";
 import { withContentSecurityPolicy } from "./content-policy.mjs";
 import { DEFAULT_SERVICE_URL } from "../provider-pdf-service.mjs";
 
-const here = import.meta.dirname, repo = path.resolve(here, "../../.."), frontend = path.join(repo, "frontend");
+// The Beaver checkout being built: the one a build names (BEAVER_CHECKOUT; a worktree reaches this folder by a link),
+// else the one holding this folder.
+const repo = path.resolve(process.env.BEAVER_CHECKOUT || path.join(import.meta.dirname, "../../.."));
+const here = path.join(repo, "AuthoritiesHelper/modern/html"), frontend = path.join(repo, "frontend");
 const backend = path.join(repo, "backend");
 const engineCrate = path.join(repo, "native/legal-structure-node");
 const frontendRequire = createRequire(path.join(frontend, "package.json"));

@@ -10,7 +10,9 @@ const flags = process.argv.slice(2);
 const lite = flags.includes("--lite"), release = flags.includes("--release");
 if (flags.some(flag => flag !== "--lite" && flag !== "--release")) throw new Error("Use build-engine.mjs [--lite] [--release]; Cargo overrides are not accepted");
 const profile = release ? "release" : "debug";
-const repo = path.resolve(import.meta.dirname, "../../..");
+// The Beaver checkout being built: the one a build names (BEAVER_CHECKOUT; a worktree reaches this folder by a link),
+// else the one holding this folder.
+const repo = path.resolve(process.env.BEAVER_CHECKOUT || path.join(import.meta.dirname, "../../.."));
 const manifest = path.join(repo, lite ? "AuthoritiesHelper/modern/authorities-lite/engine/Cargo.toml" : "native/legal-structure-node/Cargo.toml");
 const target = lite ? "wasm32-unknown-unknown" : "wasm32-wasip1";
 const targetDir = path.join(repo, "native/legal-structure-node/target");
