@@ -60,7 +60,11 @@ async function providerAnswer(url, init) {
       accept: pdf ? "application/pdf" : "application/json" }) });
   if (!response.ok) {
     const detail = await response.json().catch(() => null);
-    throw new Error(detail?.error ?? `The legal source service could not reach ${url.hostname} (${response.status}).`);
+    // The source's own answer (its status, CanLII's challenge) is given as the source gave it, as a direct fetch sees it.
+    if (detail?.code === "provider_http" || detail?.code === "verification_required") return new Response(null, {
+      status: response.status, headers: detail.code === "verification_required" ? { "cf-mitigated": "challenge" } : {} });
+    throw Object.assign(new Error(detail?.error ?? `The legal source service could not reach ${url.hostname} (${response.status}).`),
+      { status: response.status, code: detail?.code });
   }
   return response;
 }
