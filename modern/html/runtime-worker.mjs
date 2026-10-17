@@ -9,10 +9,13 @@ import { createStructureAddon } from "./structure-addon.mjs";
 import { ApplicationError } from "../../../backend/src/lib/applicationError";
 import { createAuthoritiesOperations } from "../../../backend/src/lib/authoritiesOperations";
 import { authoritySourceServices, resolveAuthoritiesSources } from "../../../backend/src/lib/authoritiesSourceResolution";
+import { reachForeignCaseHosts } from "../../../backend/src/lib/legalSources";
 import { structureNative } from "../../../backend/src/lib/structureNative";
 import { keptPdf, pageAnswered } from "./source-pdf-cache.mjs";
 import { parseCacheAnswered, pdfParser } from "./pdf-parse-pool.mjs";
 
+// A page built without the US and UK publishers' hosts (undici.mjs) looks for no decision there.
+reachForeignCaseHosts(__UK_CASE_LAW__);
 
 // structureNative() loads its engine through process.dlopen: here, the same crate compiled
 // for WASI, compiled when the runtime first handles document work.

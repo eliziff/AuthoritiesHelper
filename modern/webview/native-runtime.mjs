@@ -9,6 +9,7 @@
 // legal source and publisher PDF services' requests itself (`local`). Bundle with runtime-plugin.mjs.
 import { ApplicationError } from "../../../backend/src/lib/applicationError";
 import { authoritySourceServices, resolveAuthoritiesSources } from "../../../backend/src/lib/authoritiesSourceResolution";
+import { reachForeignCaseHosts } from "../../../backend/src/lib/legalSources";
 import { structureNative, structureNativeHost } from "../../../backend/src/lib/structureNative";
 import { decodeFrame, encodeFrame } from "../html/runtime-frames.mjs";
 import { keptPdf, pageAnswered, usePage } from "../html/source-pdf-cache.mjs";
@@ -17,6 +18,8 @@ import { useServedFiles } from "./node-sqlite.mjs";
 
 // A poll is answered within the window's wait for any answer (120 seconds).
 const HOLD_MS = 50_000;
+// A program built without the US and UK publishers' hosts (../html/undici.mjs) looks for no decision there.
+reachForeignCaseHosts(__UK_CASE_LAW__);
 const bytes = (frame, offset, length) => Buffer.from(frame.buffer, frame.byteOffset + offset, length);
 
 /**
