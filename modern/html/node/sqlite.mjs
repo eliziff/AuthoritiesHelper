@@ -10,13 +10,13 @@ import sqlite3InitModule from "@sqlite.org/sqlite-wasm";
 import wasmBinary from "@sqlite.org/sqlite-wasm/sqlite3.wasm";
 import path from "path";
 import fs, { volume } from "./fs.mjs";
+import { asRollbackJournal, installReadOnlyVfs, ReadOnlyDatabase, refusal } from "./sqlite-vfs.mjs";
 
 const VFS = "picked-file";
 // Reads go to the file in blocks this large, the most recent kept: a lookup's B-tree pages and a
 // document's overflow pages sit near each other.
 const BLOCK = 64 * 1024, BLOCKS = 512;
-const files = new Map(); // path -> Blob
-const open = new Map(); // sqlite3_file pointer -> Blob or served file
+const files = new Map(); // path -> Blob or served file
 // A file's blocks outlive the connection that read them: each lookup opens the database afresh, and every one reads
 // its B-tree's root and inner pages again. A file chosen anew is another Blob, with blocks of its own.
 const read = new WeakMap(); // Blob or served file -> { blob, blocks }
@@ -25,7 +25,7 @@ let sqlite3 = null;
 /** Resolves once SQLite is compiled; DatabaseSync needs it. Its WebAssembly is part of the runtime: no
  *  file beside the bundle to locate (the runtime has no import.meta.url to locate one from). */
 export const ready = sqlite3InitModule({ wasmBinary, locateFile: (file) => file, print: () => {}, printErr: () => {} })
-  .then((module) => { sqlite3 = module; installVfs(module); });
+  .then((module) => { sqlite3 = module; installReadOnlyVfs(module, VFS, (name) => files.get(name), readInto); });
 
 /** Makes `file` (a Blob, or a served file's `{ url, size, lastModified }`) the database at `filename`;
  *  null forgets it. A file that is no database, or one that defines views (which the stores this page reads never
@@ -34,12 +34,7 @@ export function mountFile(filename, file) {
   if (!file) { files.delete(filename); fs.rmSync(filename, { force: true }); return; }
   const previous = files.get(filename);
   files.set(filename, file);
-  let reason = "";
-  try {
-    const database = new sqlite3.oo1.DB({ filename, flags: "r", vfs: VFS });
-    try { if (database.selectValue("SELECT 1 FROM sqlite_master WHERE type = 'view' LIMIT 1")) reason = ": it defines views"; }
-    finally { database.close(); }
-  } catch { reason = ": it is not a SQLite database, or it is damaged"; }
+  const reason = refusal(sqlite3, filename, VFS);
   if (reason) {
     if (previous) files.set(filename, previous); else files.delete(filename);
     throw new Error(`${file.name || path.basename(filename)} cannot be used${reason}.`);
@@ -71,9 +66,7 @@ function readBlock(entry, index) {
   return entry.blocks.get(index);
 }
 
-/** Reads `file`'s bytes from `start` into `target`, a WAL database's header as a rollback journal's (a WAL database
- *  whose log is checkpointed reads as a rollback-journal one: there is no log to read and nothing writes, so SQLite
- *  needs no shared memory for it); the number read. */
+/** Reads `file`'s bytes from `start` into `target`, a WAL database's header as a rollback journal's; the number read. */
 function readInto(file, target, start) {
   if (!read.has(file)) read.set(file, { blob: file, blocks: new Map() });
   const entry = read.get(file);
@@ -85,8 +78,7 @@ function readInto(file, target, start) {
     target.set(block.subarray(from, from + count), done);
     done += count;
   }
-  if (start <= 18 && start + done > 19 && target[18 - start] === 2) target[18 - start] = target[19 - start] = 1;
-  return done;
+  return asRollbackJournal(target, start, done);
 }
 
 /** The files mounted here, as the engine's WASI filesystem reads them: the legal-structure engine reads the A2AJ
@@ -107,90 +99,11 @@ function readServed({ url }, start, end) {
   return new Uint8Array(request.response);
 }
 
-function installVfs({ capi, wasm, vfs }) {
-  const io = new capi.sqlite3_io_methods();
-  io.$iVersion = 1;
-  vfs.installVfs({ io: { struct: io, methods: {
-    xClose: (pFile) => { open.delete(Number(pFile)); return 0; },
-    xRead(pFile, pDest, n, offset64) {
-      const target = wasm.heap8u().subarray(Number(pDest), Number(pDest) + n);
-      try {
-        const done = readInto(open.get(Number(pFile)), target, Number(offset64));
-        if (done < n) { target.fill(0, done); return capi.SQLITE_IOERR_SHORT_READ; }
-        return 0;
-      } catch { return capi.SQLITE_IOERR_READ; }
-    },
-    xWrite: () => capi.SQLITE_READONLY,
-    xTruncate: () => capi.SQLITE_READONLY,
-    xSync: () => 0,
-    xFileSize: (pFile, pSize) => { wasm.poke64(pSize, BigInt(open.get(Number(pFile)).size)); return 0; },
-    xLock: () => 0,
-    xUnlock: () => 0,
-    xCheckReservedLock: (pFile, pOut) => { wasm.poke32(pOut, 0); return 0; },
-    xFileControl: () => capi.SQLITE_NOTFOUND,
-    xSectorSize: () => 4096,
-    xDeviceCharacteristics: () => capi.SQLITE_IOCAP_IMMUTABLE,
-  } } });
-  const struct = new capi.sqlite3_vfs(), fallback = new capi.sqlite3_vfs(capi.sqlite3_vfs_find(null));
-  struct.$iVersion = 1;
-  struct.$szOsFile = capi.sqlite3_file.structInfo.sizeof;
-  struct.$mxPathname = 1024;
-  struct.$xRandomness = fallback.$xRandomness;
-  struct.$xSleep = fallback.$xSleep;
-  fallback.dispose();
-  vfs.installVfs({ vfs: { struct, name: VFS, methods: {
-    xOpen(pVfs, zName, pFile, flags, pOutFlags) {
-      const blob = zName ? files.get(wasm.cstrToJs(zName)) : null;
-      if (!blob) return capi.SQLITE_CANTOPEN;
-      open.set(Number(pFile), blob);
-      const file = new capi.sqlite3_file(pFile);
-      file.$pMethods = io.pointer;
-      file.dispose();
-      wasm.poke32(pOutFlags, capi.SQLITE_OPEN_READONLY);
-      return 0;
-    },
-    xDelete: () => capi.SQLITE_IOERR_DELETE,
-    xAccess: (pVfs, zName, flags, pOut) => { wasm.poke32(pOut, files.has(wasm.cstrToJs(zName)) ? 1 : 0); return 0; },
-    xFullPathname: (pVfs, zName, nOut, pOut) => wasm.cstrncpy(pOut, zName, nOut) < nOut ? 0 : capi.SQLITE_CANTOPEN,
-    xCurrentTime: (pVfs, pOut) => { wasm.poke(pOut, 2440587.5 + Date.now() / 864e5, "double"); return 0; },
-    xCurrentTimeInt64: (pVfs, pOut) => { wasm.poke(pOut, 210866760000000n + BigInt(Date.now()), "i64"); return 0; },
-    xGetLastError: () => 0,
-  } } });
-}
-
-class StatementSync {
-  constructor(statement) { this.statement = statement; }
-  #rows(parameters, limit) {
-    const { statement } = this, rows = [];
-    try {
-      if (parameters.length) statement.bind(parameters);
-      while (rows.length < limit && statement.step()) rows.push(Object.assign(Object.create(null), statement.get({})));
-    } finally { statement.reset(true); }
-    return rows;
-  }
-  all(...parameters) { return this.#rows(parameters, Infinity); }
-  get(...parameters) { return this.#rows(parameters, 1)[0]; }
-  run() { throw new Error("This database is read only."); }
-}
-
-export class DatabaseSync {
-  #database; #statements = [];
+export class DatabaseSync extends ReadOnlyDatabase {
   constructor(filename) {
     if (!sqlite3) throw new Error("SQLite is still loading.");
     if (!files.has(String(filename))) throw new Error(`${filename} is not a file this page was given.`);
-    this.#database = new sqlite3.oo1.DB({ filename: String(filename), flags: "r", vfs: VFS });
-    // The file's own schema runs no function that is not harmless.
-    this.#database.exec("PRAGMA trusted_schema = OFF");
-  }
-  exec(sql) { this.#database.exec(sql); }
-  prepare(sql) {
-    const statement = new StatementSync(this.#database.prepare(sql));
-    this.#statements.push(statement.statement);
-    return statement;
-  }
-  close() {
-    for (const statement of this.#statements.splice(0)) statement.finalize();
-    this.#database.close();
+    super(sqlite3, String(filename), VFS);
   }
 }
 
