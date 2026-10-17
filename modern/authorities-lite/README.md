@@ -29,9 +29,9 @@ npx wrangler deploy --config wrangler.jsonc
 Check `https://quiet-wildflower-ab0d.authorities-lite.workers.dev/health`. If deploying to another account or Worker, update its name in `wrangler.jsonc` and `DEFAULT_SERVICE_URL` in `../provider-pdf-service.mjs` before rebuilding both standalone apps. End users configure nothing.
 
 The source tree also provides `POST /source` for networked full Authorities and ALR:
-CourtListener and GovInfo API reads, approved API-provider PDFs, and ordinary CanLII
-HTML/PDF reads. It rejects redirects and challenges rather than routing around them.
-Authorities-lite still uses its manual CanLII handoff. The endpoint was deployed
+CourtListener and GovInfo API reads and approved API-provider PDFs. It rejects
+redirects and challenges rather than routing around them, and never reads CanLII.
+The endpoint was deployed
 on October 13, 2026; live GovInfo retrieval and CORS boundary checks passed.
 Repository and HTML builds do not deploy Worker changes.
 
@@ -67,7 +67,7 @@ owning checkout. `SOURCES.json` records the actual bundled source and asset hash
 
 The Worker accepts only approved A2AJ publisher hosts and decision/PDF paths over HTTPS. Every redirect is checked before following, stays on the publisher's origin, and carries no client authorization/cookies upstream. Publisher-owned controls identify the original PDF; the response must have an accepted media type and `%PDF-` signature. Source HTML is limited to 2 MB, PDFs to 100 MiB, redirects to five and duration to 60 seconds. PDF bytes stream through the Worker rather than being buffered in full.
 
-Endpoints: `GET /health`, `GET /pdf?source=<publisher URL>`, `POST /source`, and OPTIONS. The source bridge accepts a bounded provider lookup, validates its exact HTTPS host/path and method, and sends no browser cookies upstream. JSON is limited to 64 MiB, CanLII HTML to 32 MiB, PDFs to 100 MiB and duration to 30 seconds. Every response, including unexpected failures, carries the CORS headers so the app shows the real error instead of "Failed to fetch". Default CORS origins are `null` for local files, `https://eliziff.github.io`, and the service's own origin. Set `ALLOWED_ORIGINS` to add a different hosted app. CORS is not authentication. The endpoint is intentionally public; an optional Cloudflare `RATE_LIMITER` binding is supported but not provisioned.
+Endpoints: `GET /health`, `GET /pdf?source=<publisher URL>`, `POST /source`, and OPTIONS. The source bridge accepts a bounded provider lookup, validates its exact HTTPS host/path and method, and sends no browser cookies upstream. JSON is limited to 64 MiB, PDFs to 100 MiB and duration to 30 seconds. Every response, including unexpected failures, carries the CORS headers so the app shows the real error instead of "Failed to fetch". Default CORS origins are `null` for local files, `https://eliziff.github.io`, and the service's own origin. Set `ALLOWED_ORIGINS` to add a different hosted app. CORS is not authentication. The endpoint is intentionally public; an optional Cloudflare `RATE_LIMITER` binding is supported but not provisioned.
 
 Only citations are sent to A2AJ. PDF acquisition sends public publisher URLs to the Worker. A networked ALR source lookup also sends its public citation/API lookup and an optional CourtListener or GovInfo key through `/source`; the bridge forwards the key only to its owning API. It sees the request IP and public source response. Your pasted instructions, uploaded PDFs, OCR and annotations are not uploaded to this service. The code writes no application storage/logs, returns `Cache-Control: no-store`, and disables configured Workers observability. That does not assert that infrastructure providers retain no operational records.
 

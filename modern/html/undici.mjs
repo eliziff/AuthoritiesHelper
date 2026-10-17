@@ -17,7 +17,6 @@ if (__UK_CASE_LAW__) {
   DIRECT_HOSTS.add("www.gov.uk");
   DIRECT_HOSTS.add("www.courtlistener.com");
 }
-const CANLII_HOSTS = new Set(["www.canlii.org", "canlii.org", "www.canlii.ca", "canlii.ca"]);
 const FOREIGN_HOSTS = new Set(__UK_CASE_LAW__ ? ["storage.courtlistener.com",
   "api.govinfo.gov", "www.govinfo.gov", "assets.publishing.service.gov.uk"] : []);
 // Justice Laws serves its pages to browsers directly too (Access-Control-Allow-Origin: *): an annual
@@ -60,9 +59,8 @@ async function providerAnswer(url, init) {
       accept: pdf ? "application/pdf" : "application/json" }) });
   if (!response.ok) {
     const detail = await response.json().catch(() => null);
-    // The source's own answer (its status, CanLII's challenge) is given as the source gave it, as a direct fetch sees it.
-    if (detail?.code === "provider_http" || detail?.code === "verification_required") return new Response(null, {
-      status: response.status, headers: detail.code === "verification_required" ? { "cf-mitigated": "challenge" } : {} });
+    // The source's own answer (its status) is given as the source gave it, as a direct fetch sees it.
+    if (detail?.code === "provider_http") return new Response(null, { status: response.status });
     throw Object.assign(new Error(detail?.error ?? `The legal source service could not reach ${url.hostname} (${response.status}).`),
       { status: response.status, code: detail?.code });
   }
@@ -137,7 +135,6 @@ async function networkFetch(input, init = {}) {
     redirect: redirect === "manual" ? "follow" : redirect });
   if (PUBLISHER_HOSTS.has(url.hostname)) return publisherPdf(url, rest);
   if (FOREIGN_HOSTS.has(url.hostname)) return providerAnswer(url, rest);
-  if (CANLII_HOSTS.has(url.hostname)) return providerAnswer(url, rest);
   throw new Error(`${url.hostname} cannot be reached from this page. Attach the PDF instead.`);
 }
 // A page built without network (runtime-bundle.mjs) reaches no host at all, and holds none of the code that would.

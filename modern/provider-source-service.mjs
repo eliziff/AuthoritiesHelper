@@ -6,7 +6,6 @@ const GOVINFO = /^\/packages\/USCOURTS-[A-Za-z0-9_-]+\/(?:summary|pdf)$/u;
 const GOVINFO_PDF = /^\/content\/pkg\/(USCOURTS-[A-Za-z0-9_-]+)\/pdf\/\1\.pdf$/u;
 const GOVUK_PDF = /^\/(?:media\/[A-Za-z0-9_-]+|government\/uploads\/system\/uploads\/attachment_data\/file\/\d+)\/[^/]+\.pdf$/iu;
 const COURTLISTENER_PDF = /^\/[A-Za-z0-9_%./-]+\.pdf$/iu;
-const CANLII_DOCUMENT = /^\/(?:en|fr)\/(?:[a-z]{2}\/[a-z0-9_-]+\/doc\/\d{4}\/[a-z0-9_-]+\/[a-z0-9_-]+\.(?:html|pdf)|[a-z]{2}\/laws\/(?:stat|regu)\/[a-z0-9_.-]+\/(?:latest|[0-9.-]+)\/[a-z0-9_.-]+\.html)$/iu;
 
 function sourceRequest(input, credentials) {
   let url;
@@ -21,10 +20,7 @@ function sourceRequest(input, credentials) {
   const pdf = method === 'GET' && (url.hostname === 'www.govinfo.gov' && GOVINFO_PDF.test(url.pathname)
     || url.hostname === 'assets.publishing.service.gov.uk' && GOVUK_PDF.test(url.pathname)
     || url.hostname === 'storage.courtlistener.com' && COURTLISTENER_PDF.test(url.pathname));
-  const canlii = method === 'GET' && ['www.canlii.org', 'canlii.org', 'www.canlii.ca', 'canlii.ca'].includes(url.hostname)
-    && CANLII_DOCUMENT.test(url.pathname);
-  if (!api && !pdf && !canlii) throw new SourceError('This legal source URL is not supported.', 400, 'unsupported_source');
-  if (canlii) headers.Accept = /\.pdf$/iu.test(url.pathname) ? 'application/pdf' : 'text/html';
+  if (!api && !pdf) throw new SourceError('This legal source URL is not supported.', 400, 'unsupported_source');
   if ((!input.token || input.token === 'DEMO_KEY') && credentials[url.hostname]) input.token = credentials[url.hostname];
   if (input.token !== undefined && (typeof input.token !== 'string' || input.token.length > 4096 || /[\r\n]/u.test(input.token)))
     throw new SourceError('Invalid provider credential.', 400, 'invalid_credential');
@@ -61,14 +57,6 @@ export async function readProviderSource(request, fetcher = fetch, credentials =
   const headers = { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Content-Type': type };
   if (type === 'application/pdf' || type === 'application/octet-stream')
     return new Response(await validatedPdfStream(response), { headers: { ...headers, 'Content-Type': 'application/pdf' } });
-  if (['www.canlii.org', 'canlii.org', 'www.canlii.ca', 'canlii.ca'].includes(url.hostname) &&
-      ['text/html', 'application/xhtml+xml'].includes(type)) {
-    if (response.headers.get('cf-mitigated') === 'challenge') {
-      await response.body?.cancel();
-      throw new SourceError('CanLII requires a browser visit. Open its page and attach the PDF.', 403, 'verification_required');
-    }
-    return new Response(await readBounded(response, 32 * 1024 * 1024), { headers });
-  }
   if (!/^application\/(?:json|[^;]+\+json)$/u.test(type)) {
     await response.body?.cancel();
     throw new SourceError('The legal source did not return API data. Open its page and attach its PDF.', 502, 'not_json');
