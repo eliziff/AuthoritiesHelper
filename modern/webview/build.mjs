@@ -39,13 +39,14 @@ export async function buildShell(out, { icon } = {}) {
   return [shell];
 }
 
-/** The license texts of the crates linked into the window, from its dependency graph, and the Rust standard library's. */
-async function writeCrateLicenses(out, cache) {
-  const run = (command, args) => execFileSync(command, args, { cwd: crate, encoding: 'utf8', maxBuffer: 1 << 28 });
+/** The license texts of the crates a Rust binary links, from its dependency graph, and the Rust standard library's:
+ *  the window's by default, or another crate's (`manifest`) into `file`. Crates at a local path are the maintainer's. */
+export async function writeCrateLicenses(out, cache, { manifest = path.join(crate, 'Cargo.toml'), file = 'crate-licenses.txt' } = {}) {
+  const run = (command, args) => execFileSync(command, args, { cwd: path.dirname(manifest), encoding: 'utf8', maxBuffer: 1 << 28 });
   copyFileSync(path.join(run('rustc', ['--print', 'sysroot']).trim(), 'share/doc/rust/COPYRIGHT-library.html'),
     path.join(out, 'Rust-standard-library.html'));
   const metadata = JSON.parse(run('cargo', ['metadata', '--format-version', '1', '--locked', '--filter-platform',
-    'x86_64-pc-windows-msvc', '--manifest-path', path.join(crate, 'Cargo.toml')]));
+    'x86_64-pc-windows-msvc', '--manifest-path', manifest]));
   const packages = new Map(metadata.packages.map((item) => [item.id, item]));
   const nodes = new Map(metadata.resolve.nodes.map((node) => [node.id, node])), linked = new Set();
   // Build dependencies only compile the icon and manifest resources; the shell itself is the maintainer's.
@@ -54,23 +55,40 @@ async function writeCrateLicenses(out, cache) {
   visit(metadata.resolve.root);
   mkdirSync(cache, { recursive: true });
   const sections = [];
-  for (const item of [...linked].map((id) => packages.get(id)).sort((a, b) => a.name.localeCompare(b.name))) {
+  for (const item of [...linked].map((id) => packages.get(id)).filter((item) => item.source)
+    .sort((a, b) => a.name.localeCompare(b.name))) {
     const dir = path.dirname(item.manifest_path);
     let texts = readdirSync(dir).filter((name) => /^(licen[cs]e|copying|notice|copyright|unlicense)/i.test(name))
       .map((name) => readFileSync(path.join(dir, name), 'utf8'));
     if (!texts.length) {
-      // Published without its license file: the repository's, at the commit the crate was published from.
+      // Published without its license file: the repository's, at the commit the crate was published from, else the
+      // standard text of each license the crate declares (SPDX's license list).
       const saved = path.join(cache, `${item.name}-${item.version}.txt`);
       if (!existsSync(saved)) {
-        const { git } = JSON.parse(readFileSync(path.join(dir, '.cargo_vcs_info.json'), 'utf8'));
-        const repository = item.repository.replace('https://github.com/', 'https://raw.githubusercontent.com/');
-        const response = await fetch(`${repository}/${git.sha1}/LICENSE`);
-        if (!response.ok) throw new Error(`${item.name} ${item.version} carries no license file (${response.status}).`);
-        writeFileSync(saved, await response.text());
+        const vcs = path.join(dir, '.cargo_vcs_info.json');
+        const sha = existsSync(vcs) ? JSON.parse(readFileSync(vcs, 'utf8')).git?.sha1 : null;
+        const repository = item.repository?.replace('https://github.com/', 'https://raw.githubusercontent.com/');
+        let text = null;
+        for (const name of sha && repository ? ['LICENSE', 'LICENSE.md', 'LICENSE.txt', 'LICENSE-MIT', 'COPYING'] : []) {
+          const response = await fetch(`${repository}/${sha}/${name}`);
+          if (response.ok) { text = await response.text(); break; }
+        }
+        if (!text) {
+          const ids = (item.license ?? '').split(/\s+(?:OR|AND|WITH)\s+|[()/]/).map((id) => id.trim()).filter(Boolean);
+          const standard = [];
+          for (const id of ids) {
+            const response = await fetch(`https://raw.githubusercontent.com/spdx/license-list-data/main/text/${id}.txt`);
+            if (!response.ok) throw new Error(`${item.name} ${item.version} carries no license file, nor is ${id} on SPDX's list (${response.status}).`);
+            standard.push(await response.text());
+          }
+          if (!standard.length) throw new Error(`${item.name} ${item.version} carries no license file and declares no license.`);
+          text = standard.join('\n\n');
+        }
+        writeFileSync(saved, text);
       }
       texts = [readFileSync(saved, 'utf8')];
     }
     sections.push(`${item.name} ${item.version} (${item.license}) ${item.repository ?? ''}\n\n${texts.join('\n\n')}`);
   }
-  writeFileSync(path.join(out, 'crate-licenses.txt'), `${sections.join(`\n\n${'='.repeat(80)}\n\n`)}\n`);
+  writeFileSync(path.join(out, file),`${sections.join(`\n\n${'='.repeat(80)}\n\n`)}\n`);
 }
