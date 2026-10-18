@@ -3,7 +3,7 @@
 // A job brings the parse cache the runtime already holds for its source and takes back the
 // cache files the parse wrote; the runtime's engine then reads the document from them.
 import { Volume, createFsFromVolume } from "memfs";
-import { createStructureAddon, warmStructureAddon } from "./structure-addon.mjs";
+import { createStructureAddon } from "./structure-addon.mjs";
 import { createWasi } from "./wasi.mjs";
 import { warmupPdf } from "./parse-warmup.mjs";
 
@@ -35,7 +35,9 @@ self.onmessage = async ({ data: { id, module, bytes, request, cache } }) => {
       return { instance, close: wasi.close,
         panic: () => stderr.split(/panicked at [^\n]*\n/u).at(-1).trim().split("\n")[0] ?? "" };
     });
-    warmStructureAddon(addon, { partly: true });
+    // The citation grammars one short citation reaches, as this engine seldom reads citations.
+    addon.citationEngineCall("extract", JSON.stringify({ text: "R v Oakes, [1986] 1 SCR 103", offsetUnit: "utf16",
+      options: { resolve: false } }));
     // Ready what a PDF's derivation builds on first use before the first PDF arrives: the cues its layout
     // reads, then everything else one small PDF reaches. Its cache files are dropped.
     warming = (async () => {

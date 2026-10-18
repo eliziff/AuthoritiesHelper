@@ -2,7 +2,7 @@
 // WebAssembly (native/legal-structure-node, wasm32-wasip1), called through the same dispatch.
 import { structureEngineAddon } from "../../../shared/structure-engine.mjs";
 
-export { SIGNATURES, warmStructureAddon } from "../../../shared/structure-engine.mjs";
+export { SIGNATURES } from "../../../shared/structure-engine.mjs";
 
 /**
  * @param {() => { instance: WebAssembly.Instance, panic: () => string, close?: () => void }} instantiate
