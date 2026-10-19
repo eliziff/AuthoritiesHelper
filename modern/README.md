@@ -67,7 +67,7 @@ PDF attached. The new endpoint must be
 deployed separately: rebuilding standalone HTML does not update the remote Worker.
 Private ALR's existing local program provides the same endpoint after a program
 rebuild, so its served pages do not require that remote deployment. The HTML packages embed the
-checksum-verified Legal Browser OCR v0.2.0 Balanced Indra recognizer, learned line
+checksum-verified Legal Browser OCR v0.2.2 Balanced Indra recognizer, learned line
 detector and CPU SIMD/WebGPU runtimes. Scanned pages are rendered at 144 dpi,
 recognized locally and passed to the shared PDF parser with their page geometry.
 WebGPU is selected when the browser exposes a suitable adapter with FP16 support;

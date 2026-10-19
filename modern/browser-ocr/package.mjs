@@ -6,7 +6,7 @@ import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 
-export const OCR_RUNTIME_SHA256 = '3bae23ff346b05805e437868dae809a505255caab9c3a9dac61195404a182ad3';
+export const OCR_RUNTIME_SHA256 = '7273b362c051cf54e143ccc6e171e75ab6dbf8fa2b2845b96a95535df067ab19';
 const vendor = path.resolve(import.meta.dirname, '../vendor'), runtime = path.join(vendor, 'runtime');
 // Both standalone pages use the released Balanced Indra models, detector and CPU/GPU runtimes.
 const files = {
@@ -43,7 +43,7 @@ async function unpack(bytes, destination, strip = false) {
 export async function prepareBrowserOcr() {
   const runtime = process.env.AUTHORITIES_OCR_RUNTIME
     ? await fs.readFile(process.env.AUTHORITIES_OCR_RUNTIME)
-    : await download('https://github.com/eliziff/legal-browser-ocr/releases/download/v0.2.0/legal-browser-ocr-runtime.tar.gz');
+    : await download('https://github.com/eliziff/legal-browser-ocr/releases/download/v0.2.2/legal-browser-ocr-runtime.tar.gz');
   if (crypto.createHash('sha256').update(runtime).digest('hex') !== OCR_RUNTIME_SHA256)
     throw new Error('OCR runtime checksum mismatch.');
   await unpack(runtime, path.join(vendor, 'runtime'));
