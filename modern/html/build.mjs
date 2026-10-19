@@ -39,7 +39,7 @@ const packageManifests = files => [...new Set(files.flatMap(file => {
   return index < 0 ? [] : [path.join(parts.slice(0, index + (parts[index + 1].startsWith('@') ? 3 : 2)).join('/'), 'package.json')];
 }))];
 
-async function buildFrontend(release, entry, store) {
+async function buildFrontend(release, entry, store, native) {
   const require = createRequire(path.join(frontend, "package.json"));
   const { build, loadConfigFromFile } = await import(pathToFileURL(require.resolve("vite")).href);
   const configFile = path.join(frontend, 'vite.config.ts');
@@ -69,7 +69,7 @@ async function buildFrontend(release, entry, store) {
         if (entry && /[\\/]authoritiesMain\.tsx$/u.test(source)) return entry;
         if (entry && importer && /^[@\w]/u.test(source) && !source.startsWith('@/') &&
             !path.resolve(importer).startsWith(repo)) return this.resolve(source, path.join(frontend, 'src/authoritiesMain.tsx'), { skipSelf: true });
-        if(source === './standalonePdfText') return path.join(here,'standalone-pdf-text.mjs');
+        if(source === './standalonePdfText' && !native) return path.join(here,'standalone-pdf-text.mjs');
         // The viewer's PDF.js worker comes from the page bridge, gzipped, not inlined as a data: URL.
         if(source === './pdfWorkerUrl') return path.join(here,'standalone-pdf-worker.mjs');
         if(source === './pdfDecoders') return path.join(here,'standalone-pdf-decoders.mjs');
@@ -181,19 +181,18 @@ export async function buildAuthoritiesHtml(output, { release = false, app, asset
         inputs: [...files, ...contracts, ...packageManifests([...files, createRequire(path.join(backend, 'package.json')).resolve('esbuild')]),
           path.join(backend, 'package.json'), path.join(repo, 'shared/package.json'), ...builder] };
     }, backend),
-    cached(cacheDir, `frontend-${release ? "release" : "development"}${app ? `-${app.name}` : ""}`,
+    cached(cacheDir, `frontend-${native ? "native-" : ""}${release ? "release" : "development"}${app ? `-${app.name}` : ""}`,
       sha256(process.version + viteEnvironment + buildFrontend.toString() + bundledFiles.toString() + packageManifests.toString() + (app?.entry ?? "") + (app?.store ?? "")),
-      () => buildFrontend(release, app?.entry, app?.store), frontend),
-    browserOcrAssets(),
-    bundleScript("raster-worker.mjs"),
+      () => buildFrontend(release, app?.entry, app?.store, native), frontend),
+    native ? {} : browserOcrAssets(),
+    native ? "" : bundleScript("raster-worker.mjs"),
   ]);
   const ocr = { ...assets };
   const pdfWorker = readFileSync(path.join(pdfjs, "legacy/build/pdf.worker.min.mjs"));
-  // Named for what is recognized (recognized text is kept by it), before the assets are packed: the
-  // PDF.js that draws the pages is part of it.
-  const ocrKey = browserOcrKey({ ...ocr, pdfWorker: pdfWorker.toString("base64") });
-  // The worker that draws the pages to recognize: page code, like recognize-pdf.mjs, not in the key.
-  ocr.rasterWorker = Buffer.from(rasterWorker).toString("base64");
+  if (!native) ocr.rasterWorker = Buffer.from(rasterWorker).toString("base64");
+  // Cached recognition binds both model assets and the adapter's rendering/preprocessing.
+  const ocrKey = browserOcrKey({ ...ocr, pdfWorker: pdfWorker.toString("base64"),
+    adapter: readFileSync(path.join(here, '../browser-ocr/ocr.mjs')).toString("base64") });
   // Gzip keeps the page small (these assets, the runtime and the fonts go in at a third of their
   // size): the page inflates the runtime as it starts and the recognizer's assets before the first
   // page is read, and the runtime Worker its engine, all off the main thread. Each is compressed
@@ -209,7 +208,8 @@ export async function buildAuthoritiesHtml(output, { release = false, app, asset
     renameSync(`${file}.${process.pid}`, file);
     return asset ? asset(Buffer.from(packed, "base64")) : packed;
   };
-  const packed = ["model", "ortMjs", "ortWasm", "recognitionWorker", "layoutCore", "layoutWasm", "rasterWorker"];
+  const packed = native ? [] : ["model", "gpuModel", "ortMjs", "ortWasm", "gpuMjs", "gpuWasm",
+    "recognitionWorker", "detectorWorker", "detectorModel", "rasterWorker"];
   for (const name of packed) ocr[name] = gzip(Buffer.from(ocr[name], "base64"));
   const payload = {
     ...!native && { runtime: gzip(Buffer.from(runtime.code)), engine: gzip(engine) }, ocr: { ...ocr, gzip: packed },

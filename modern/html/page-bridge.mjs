@@ -23,8 +23,9 @@ const block = (index) => {
 const lazy = (value) => !value || typeof value !== "object" ? value : "#" in value ? block(value["#"])
   : new Proxy(value, { get: (target, key) => lazy(target[key]) });
 const payload = lazy(__AUTHORITIES_PAYLOAD__);
+const native = globalThis.AUTHORITIES_NATIVE_RUNTIME;
 globalThis.AUTHORITIES_ASSETS = payload.ocr;
-globalThis.AUTHORITIES_PDF_TEXT = {
+if (!native) globalThis.AUTHORITIES_PDF_TEXT = {
   read: readRecognizedText,
   waiting: recognitionWaiting,
   async prepare(product, role, file, priority, scanned, signal, completed) {
@@ -59,7 +60,6 @@ const recognition = new Map();
 let nextId = 0, failure = null;
 // A desktop program runs the runtime itself, natively, and names where the page reaches it
 // (../webview/native-runtime.mjs); its page carries no runtime or engine.
-const native = globalThis.AUTHORITIES_NATIVE_RUNTIME;
 // The runtime is carried gzipped: it is inflated off the main thread, then started as its Worker.
 let runtimeCode;
 

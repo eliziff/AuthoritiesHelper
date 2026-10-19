@@ -124,7 +124,7 @@ async function recognizeOne(source, key, bytes, page_index, signal) {
   let drawn;
   try {
     await pdf.open();
-    // The page at 200 dpi (at most 12 MP), drawn and read in the raster worker.
+    // The page at 144 dpi (at most 12 MP), drawn in the raster worker.
     drawn = await ask({ source, page: page_index });
     const { width, height, viewportWidth, viewportHeight } = drawn;
     const recognized = await recognizePage(drawn, signal);

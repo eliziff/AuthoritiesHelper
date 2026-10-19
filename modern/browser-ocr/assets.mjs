@@ -3,7 +3,8 @@ const urls = new Map(), decoded = new Map(), dataUrls = new Map();
 // Match Legal Browser OCR: a file-origin child worker cannot import sibling blob:null modules, and
 // a module worker started from a blob:null script never runs. These go to workers as data: URLs.
 const DATA_URLS = { ortMjs: 'application/javascript', ortWasm: 'application/wasm',
-  layoutCore: 'application/javascript', layoutWasm: 'application/wasm' };
+  gpuMjs: 'application/javascript', gpuWasm: 'application/wasm',
+  detectorModel: 'application/octet-stream', detectorConfig: 'application/json' };
 /** The assets the page carries gzipped (the build names them), inflated by assetsReady. */
 const packed = () => new Set(globalThis.AUTHORITIES_ASSETS?.gzip ?? []);
 function packedValue(name) {

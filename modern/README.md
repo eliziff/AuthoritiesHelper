@@ -66,10 +66,19 @@ for networked source acquisition. CanLII is never fetched: its page is linked an
 PDF attached. The new endpoint must be
 deployed separately: rebuilding standalone HTML does not update the remote Worker.
 Private ALR's existing local program provides the same endpoint after a program
-rebuild, so its served pages do not require that remote deployment. The HTML package embeds the OCR model, runtime, layout workers and
-PDF worker. Scanned pages are recognized in the browser and passed to the
-shared PDF parser with their page geometry. The recognition WebAssembly in
-[browser-ocr/wasm](browser-ocr/wasm) is rebuilt from pinned ONNX Runtime and
-Tesseract sources by `node browser-ocr/wasm/build.mjs`, which installs its own
-Emscripten and maps build paths so the files carry none from the build machine.
+rebuild, so its served pages do not require that remote deployment. The HTML packages embed the
+checksum-verified Legal Browser OCR v0.2.0 Balanced Indra recognizer, learned line
+detector and CPU SIMD/WebGPU runtimes. Scanned pages are rendered at 144 dpi,
+recognized locally and passed to the shared PDF parser with their page geometry.
+WebGPU is selected when the browser exposes a suitable adapter with FP16 support;
+CPU execution remains available otherwise. The original model terms and restrictions
+are embedded with the assets; the weights are not covered by the application's MIT license.
+The loopback and native WebView2 programs use the Rust OCR runtime instead, with
+machine-local CPU/GPU and worker calibration. Install its assets with
+`python legal-pdf-parser/tools/install_ocr_runtime.py` before native packaging.
+The package smoke can also read the independently invented Lite scan using only
+the packaged addon and OCR assets: pass its fixture directory after the package
+stage to `modern/scripts/authorities-package/smoke.mjs`.
+The old `browser-ocr/wasm` builder is retained as historical source and does not
+build the current runtime.
 The explicit engine builder remaps paths for both profiles. Ordinary HTML assembly reads the newest existing debug/release WASI artifact, uses staging frontend transforms and fast gzip; `--release` selects optimized release artifacts and delivery compression.

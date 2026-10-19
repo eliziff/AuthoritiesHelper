@@ -28,10 +28,10 @@ Remove-Item -LiteralPath $Zip -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Path $Stage -Force | Out-Null
 
 $NativeDll = Join-Path $Repo 'native\legal-structure-node\target\release\legal_structure_node.dll'
-foreach ($required in @('legal-pdf-parser\runtime\onnxruntime.dll',
-    'legal-pdf-parser\runtime\legalpdf_tesseract_layout.dll',
-    'legal-pdf-parser\runtime\kraken\model.onnx',
-    'legal-pdf-parser\runtime\kraken\codec.json')) {
+foreach ($required in @('legal-pdf-parser\runtime\onnx\onnxruntime.dll',
+    'legal-pdf-parser\runtime\onnx\onnxruntime_providers_shared.dll',
+    'legal-pdf-parser\runtime\onnx\DirectML.dll',
+    'legal-pdf-parser\runtime\indra\manifest.json')) {
     if (-not (Test-Path -LiteralPath (Join-Path $Repo $required) -PathType Leaf)) {
         throw "Missing package input: $required"
     }
@@ -45,14 +45,11 @@ Invoke-Checked 'node.exe' @((Join-Path $Owner 'scripts/authorities-package/bundl
 $runtime = Join-Path $Stage 'runtime'
 $pdfRuntime = Join-Path $runtime 'legal-pdf-parser\runtime'
 New-Item -ItemType Directory -Path (Join-Path $runtime 'legal-structure'),
-    (Join-Path $pdfRuntime 'kraken') -Force | Out-Null
+    $pdfRuntime -Force | Out-Null
 Copy-Item -LiteralPath $NativeDll `
     -Destination (Join-Path $runtime 'legal-structure\legal_structure_node.dll')
-Copy-Item -LiteralPath (Join-Path $Repo 'legal-pdf-parser\runtime\onnxruntime.dll'),
-    (Join-Path $Repo 'legal-pdf-parser\runtime\legalpdf_tesseract_layout.dll') -Destination $pdfRuntime
-Copy-Item -LiteralPath (Join-Path $Repo 'legal-pdf-parser\runtime\kraken\model.onnx'),
-    (Join-Path $Repo 'legal-pdf-parser\runtime\kraken\codec.json') `
-    -Destination (Join-Path $pdfRuntime 'kraken')
+Copy-Item -LiteralPath (Join-Path $Repo 'legal-pdf-parser\runtime\indra'),
+    (Join-Path $Repo 'legal-pdf-parser\runtime\onnx') -Destination $pdfRuntime -Recurse
 
 $download = Join-Path $Cache $NodeArchive
 if (-not (Test-Path -LiteralPath $download -PathType Leaf)) {

@@ -5,12 +5,12 @@
 // (../html/runtime-frames.mjs). The runtime stays loaded while the program runs.
 //
 // A page's lookups ask the page for what its own store keeps (publisher PDFs and sources' answers,
-// ../html/source-pdf-cache.mjs) and the page recognizes scanned pages, as with a Worker; the program answers the
+// ../html/source-pdf-cache.mjs). The native engine recognizes scanned pages; the program answers the
 // legal source and publisher PDF services' requests itself (`local`). Bundle with runtime-plugin.mjs.
 import { ApplicationError } from "../../../backend/src/lib/applicationError";
 import { authoritySourceServices, resolveAuthoritiesSources } from "../../../backend/src/lib/authoritiesSourceResolution";
 import { reachForeignCaseHosts } from "../../../backend/src/lib/legalSources";
-import { structureNative, structureNativeHost } from "../../../backend/src/lib/structureNative";
+import { structureNative } from "../../../backend/src/lib/structureNative";
 import { decodeFrame, encodeFrame } from "../html/runtime-frames.mjs";
 import { keptPdf, pageAnswered, usePage } from "../html/source-pdf-cache.mjs";
 import { useServiceFetch } from "../html/undici.mjs";
@@ -58,25 +58,6 @@ export function createNativeRuntime({ createOperations, mountStore, caseMismatch
     // Nothing kept is known when no page is open to ask.
     if (!post(page, message) && message.id !== undefined) pageAnswered({ id: message.id });
   });
-  let recognitionId = 0;
-  const recognition = new Map();
-  structureNativeHost({ recognizePdf(bytes, sourceSha256, pages, signal, completed) {
-    const id = ++recognitionId, session = page;
-    return new Promise((resolve, reject) => {
-      const abort = () => {
-        recognition.delete(id);
-        post(session, { type: "cancel-recognition", id });
-        reject(new DOMException("Recognition cancelled", "AbortError"));
-      };
-      signal?.addEventListener("abort", abort, { once: true });
-      recognition.set(id, { session, resolve, reject, completed, cleanup: () => signal?.removeEventListener("abort", abort) });
-      if (!post(session, { type: "recognize", id, bytes, sourceSha256, pages })) {
-        recognition.delete(id);
-        reject(new Error("The page that recognizes scanned pages is closed."));
-      }
-    });
-  } });
-
   let operations;
   function load() {
     if (operations) return operations;
@@ -118,13 +99,6 @@ export function createNativeRuntime({ createOperations, mountStore, caseMismatch
     } else if (message.type === "operation") void run(session, message);
     else if (message.type === "abort") session.active.get(message.id)?.abort();
     else if (message.type === "source-pdf" || message.type === "source-answer") pageAnswered(message);
-    else if (message.type === "recognize-progress") recognition.get(message.id)?.completed?.(message.recognized);
-    else if (message.type === "recognized") {
-      const pending = recognition.get(message.id);
-      if (!pending) return;
-      recognition.delete(message.id); pending.cleanup();
-      message.error ? pending.reject(new Error(message.error)) : pending.resolve(message.result);
-    }
   }
 
   const closed = new Set();
@@ -136,9 +110,6 @@ export function createNativeRuntime({ createOperations, mountStore, caseMismatch
     if (page) {
       closed.add(page.id);
       for (const controller of page.active.values()) controller.abort();
-      for (const [key, pending] of recognition) if (pending.session === page) {
-        recognition.delete(key); pending.cleanup(); pending.reject(new Error("The page closed."));
-      }
       page.waiting?.();
     }
     return page = { id, queue: [], waiting: null, active: new Map() };

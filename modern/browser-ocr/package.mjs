@@ -6,17 +6,22 @@ import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 
-export const OCR_RUNTIME_SHA256 = '80ab104afac99843fb9b3dbc8e1d785432c08dcbe2b9529d03ab620169c07cb3';
+export const OCR_RUNTIME_SHA256 = '3bae23ff346b05805e437868dae809a505255caab9c3a9dac61195404a182ad3';
 const vendor = path.resolve(import.meta.dirname, '../vendor'), runtime = path.join(vendor, 'runtime');
-// The release's model, codec and workers; the WebAssembly is rebuilt from source without
-// machine paths (wasm/build.mjs) and kept in this repository.
-const wasm = path.resolve(import.meta.dirname, 'wasm');
+// Both standalone pages use the released Balanced Indra models, detector and CPU/GPU runtimes.
 const files = {
-  model: path.join(runtime, 'assets/model.ort'), codec: path.join(runtime, 'assets/codec.json'),
-  ortMjs: path.join(wasm, 'ort.mjs'), ortWasm: path.join(wasm, 'ort.wasm'),
+  model: path.join(runtime, 'assets/indra-followup/student8ids/model.onnx'),
+  gpuModel: path.join(runtime, 'assets/indra-followup/gpu8h/model.onnx'),
+  codec: path.join(runtime, 'assets/indra-followup/student8ids/codec.json'),
+  ortMjs: path.join(runtime, 'dist/ort-wasm-simd-threaded.mjs'),
+  ortWasm: path.join(runtime, 'dist/ort-wasm-simd-threaded.wasm'),
+  gpuMjs: path.join(runtime, 'dist/ort-wasm-simd-threaded.jsep.mjs'),
+  gpuWasm: path.join(runtime, 'dist/ort-wasm-simd-threaded.jsep.wasm'),
   recognitionWorker: path.join(runtime, 'dist/recognition-worker.js'),
-  layoutWorker: path.join(import.meta.dirname, 'layout-worker.js'),
-  layoutCore: path.join(wasm, 'layout-core.mjs'), layoutWasm: path.join(wasm, 'layout-core.wasm'),
+  detectorWorker: path.join(runtime, 'dist/detector-worker.js'),
+  detectorModel: path.join(runtime, 'assets/detectors/indra/model.onnx'),
+  detectorConfig: path.join(runtime, 'assets/detectors/config.json'),
+  packageNotice: path.join(runtime, 'assets/manifest.json'),
 };
 
 async function download(url) {
@@ -38,7 +43,7 @@ async function unpack(bytes, destination, strip = false) {
 export async function prepareBrowserOcr() {
   const runtime = process.env.AUTHORITIES_OCR_RUNTIME
     ? await fs.readFile(process.env.AUTHORITIES_OCR_RUNTIME)
-    : await download('https://github.com/eliziff/legal-browser-ocr/releases/download/v0.1.4/legal-browser-ocr-runtime.tar.gz');
+    : await download('https://github.com/eliziff/legal-browser-ocr/releases/download/v0.2.0/legal-browser-ocr-runtime.tar.gz');
   if (crypto.createHash('sha256').update(runtime).digest('hex') !== OCR_RUNTIME_SHA256)
     throw new Error('OCR runtime checksum mismatch.');
   await unpack(runtime, path.join(vendor, 'runtime'));

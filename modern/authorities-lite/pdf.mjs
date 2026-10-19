@@ -124,7 +124,7 @@ export async function inspectPdf(data, engine, progress=()=>{}, signal, expected
         const view=await rendered(page);
         try {
           if(hasInk(view.canvas)){
-            progress(`Recognizing page ${n} of ${pdf.numPages} · Quality`);
+            progress(`Recognizing page ${n} of ${pdf.numPages} · Balanced`);
             const recognized=await recognizePage(view.canvas,signal);
             const normalized = recognized.filter(l=>!native.some(a=>normalize(a.text)===normalize(l.text)&&Math.abs(a.rect[1]-l.y/view.viewport.height)<.04));
             ocr={lines:normalized,transform:cropToPdfTransform(view.viewport.transform,null,view.canvas.width,view.canvas.height)};

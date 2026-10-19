@@ -4,7 +4,7 @@ import {createEngine,caller} from './engine.mjs';import {bytes} from './assets.m
 import {parseInstructions,key,targetLabel,canliiFileCitation,captionStyleOfCause} from './domain.mjs';
 import {canliiPdf,resolveRecord,retrievePdf,download,makeZip,DEFAULT_SERVICE_URL} from './client.mjs';
 import {inspectPdf,inspectOpening,attachFindings,exportPdf} from './pdf.mjs';import {makeViewer} from './viewer.mjs';
-import {canliiFiles,headerIdentities,headerText,matchFolderPdf} from '../../../shared/folder-pdf-match.mjs';import {publisherOpenUrl} from '../../../backend/src/lib/legalSourcePresentation.ts';
+import {headerIdentities,headerText,matchFolderPdf} from '../../../shared/folder-pdf-match.mjs';import {publisherOpenUrl} from '../../../backend/src/lib/legalSourcePresentation.ts';
 import {PdfPageNavigation} from '../../../frontend/src/app/components/shared/views/PdfPageNavigation.tsx';
 
 // Application state lives outside React so long-running work mutates it directly; emit() re-renders.
@@ -115,7 +115,7 @@ async function addFromFolder(files,quiet=false){
  try{
   const extras=[];
   const known=new Set(records.flatMap(r=>r.aliases.map(c=>key(c,engine))).filter(Boolean));
-  if(!onlyListed)for(const {citation} of canliiFiles(files)){const identity=key(citation,engine);if(!identity||known.has(identity))continue;
+  if(!onlyListed)for(const file of files){const citation=canliiFileCitation(file.name);if(!citation)continue;const identity=key(citation,engine);if(!identity||known.has(identity))continue;
    let r;try{r=parseInstructions(citation,engine)[0];}catch{}if(r&&!records.some(a=>a.id===r.id)){extras.push(r);records.push(r);known.add(identity);}}
   for(const file of [...files].sort((a,b)=>b.lastModified-a.lastModified)){
    if(controller.signal.aborted)break;

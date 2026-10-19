@@ -1,7 +1,6 @@
 // Draws the pages the recognizer reads, off the page's main thread: PDF.js opens each source in its
-// own worker, started here, and draws each page here on an OffscreenCanvas. The page's grey pixels, a
-// byte each (for the layout worker), and an ImageBitmap of it (for the recognition worker) go back as
-// transferables.
+// own worker, started here, and draws each page here on an OffscreenCanvas. An ImageBitmap goes to
+// the detector and recognizer without reading full-page pixels on the main thread.
 // It is the viewer's PDF.js, with the viewer's worker and image decoders, sent by the page.
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { createPdfRuntime } from '../../../shared/browser-pdf.mjs';
@@ -22,17 +21,14 @@ async function draw(source, index) {
     const raw = page.view, rotated = page.rotate % 180 !== 0;
     const width = raw[rotated ? 3 : 2] - raw[rotated ? 1 : 0];
     const height = raw[rotated ? 2 : 3] - raw[rotated ? 0 : 1];
-    let viewport = page.getViewport({ scale: 200 / 72 });
+    let viewport = page.getViewport({ scale: 144 / 72 });
     if (viewport.width * viewport.height > 12_000_000)
       viewport = page.getViewport({ scale: viewport.scale * Math.sqrt(12_000_000 / (viewport.width * viewport.height)) });
     const canvas = new OffscreenCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
-    const context = canvas.getContext('2d', { willReadFrequently: true });
+    const context = canvas.getContext('2d');
     await page.render({ canvasContext: context, viewport }).promise;
-    const rgba = context.getImageData(0, 0, canvas.width, canvas.height).data, grey = new Uint8Array(canvas.width * canvas.height);
-    for (let index = 0, offset = 0; index < grey.length; index++, offset += 4)
-      grey[index] = (rgba[offset] * 77 + rgba[offset + 1] * 150 + rgba[offset + 2] * 29) >> 8;
-    const pixels = grey.buffer, bitmap = canvas.transferToImageBitmap();
-    return [{ width, height, viewportWidth: viewport.width, viewportHeight: viewport.height, pixels, bitmap }, [pixels, bitmap]];
+    const bitmap = canvas.transferToImageBitmap();
+    return [{ width, height, viewportWidth: viewport.width, viewportHeight: viewport.height, bitmap }, [bitmap]];
   } finally { page.cleanup(); }
 }
 

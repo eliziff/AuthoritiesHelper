@@ -5,15 +5,14 @@ This Authorities integration is MIT-licensed, Copyright (c) 2026 Elias Ziff; the
 ## Reused components
 
 - **Beaver**, eliziff/Beaver: the reused files are the author's (Elias Ziff's) own code, included under MIT. The owning checkout supplies PDF annotations, page binding/navigation, publisher rules and folder matching; actual bundled source hashes are recorded in `SOURCES.json`.
-- **Legal Browser OCR**, eliziff/legal-browser-ocr, owning source checkout: MIT source; runtime/model components retain their own licenses. Its quality inference worker, preprocessing, layout, line ordering and searchable PDF export are reused, not reimplemented. The v0.1.4 runtime archive is checksum-verified by the shared OCR asset preparer.
+- **Legal Browser OCR**, eliziff/legal-browser-ocr, owning source checkout: MIT source; runtime/model components retain their own licenses. Its Balanced Indra inference workers, preprocessing, line detection, ordering and searchable PDF export are reused. The v0.2.0 runtime archive is checksum-verified by the shared OCR asset preparer.
 - **Legal Structure Parser**: MIT. The Rust parser runs behind the browser ABI; its compiled artifact hash is recorded in `SOURCES.json`.
 - **Common Law Cite**: the shared Rust citation engine. Its compiled artifact hash is recorded in `SOURCES.json`, and its own `NOTICE` is included in the package.
 - **Legal Pinpointer**: MIT. Its reporter-alias data and notices are retained; the exact data hash is recorded in `SOURCES.json`.
 - **PDF.js**, Mozilla/pdf.js, bundled `pdfjs-dist` 4.10.38: Apache-2.0. https://github.com/mozilla/pdf.js/blob/master/LICENSE
 - **pdf-lib**, Andrew Dillon and contributors, 1.17.1: MIT. https://github.com/Hopding/pdf-lib/blob/master/LICENSE.md
 - **ONNX Runtime**, Microsoft Corporation and contributors, 1.22.0 and the supplied compact runtime build: MIT; third-party notices apply. https://github.com/microsoft/onnxruntime/blob/main/LICENSE ; https://github.com/microsoft/onnxruntime/blob/main/ThirdPartyNotices.txt
-- **Tesseract layout engine**: Apache-2.0; its supplied WASM layout binary is reused from the pinned Legal Browser OCR v0.1.4 runtime. https://github.com/tesseract-ocr/tesseract/blob/main/LICENSE
-- **Kraken / CATMuS recognition lineage**: the legal-domain model bytes are reused unchanged from the user's published Legal Browser OCR v0.1.4 runtime. The source repository attributes CATMuS/Simon Gabay/Thibault Clerice and https://zenodo.org/records/10602357 . That record is titled CATMuS-Print [Tiny]; the original repository's Small wording is not new model provenance. Model assets are not relicensed by this integration; preserve their upstream notices/terms. This package does not assert that all third-party weights are MIT.
+- **Indra**, datalab-to/indra: Apache-2.0 source, with separately licensed recognition/detection weights from datalab-to/indra-ocr at revision `ed345c7f158eddbc7dee0c6a7269afb75a94f7e8`. Recognition weights are fine-tuned/pruned and exported for CPU SIMD and GPU FP16 execution. The original modified OpenRAIL model terms, use restrictions, modification notice and exact asset hashes are embedded in `packageNotice` and copied to `OCR-NOTICES.json`. The weights are not MIT-licensed; the application license does not replace their terms.
 
 The archive includes `SOURCES.json` with SHA-256 hashes of actual bundled sources and embedded inputs. Source judgments retain their publisher terms; A2AJ's `upstream_license` is retained where supplied. No legal text or source PDFs are relicensed here.
 
