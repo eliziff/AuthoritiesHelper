@@ -49,7 +49,12 @@ keep separate results, and files changed during assembly leave no reusable resul
 Check that boundary without building the app:
 `node AuthoritiesHelper/modern/html/build-cache.test.mjs`.
 
+Engine builds need [WASI SDK 34](https://github.com/WebAssembly/wasi-sdk/releases/tag/wasi-sdk-34)
+for SQLite. Set `WASI_SDK_PATH` to its unpacked directory; the release workflow
+installs and verifies the Linux SDK itself.
+
 ```sh
+rustup target add wasm32-wasip1
 node AuthoritiesHelper/modern/html/build-engine.mjs
 npm run build:authorities-html
 
