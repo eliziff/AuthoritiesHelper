@@ -73,8 +73,8 @@ recognized locally and passed to the shared PDF parser with their page geometry.
 WebGPU is selected when the browser exposes a suitable adapter with FP16 support;
 CPU execution remains available otherwise. The original model terms and restrictions
 are embedded with the assets; the weights are not covered by the application's MIT license.
-The loopback and native WebView2 programs use the Rust OCR runtime instead, with
-machine-local CPU/GPU and worker calibration. Install its assets with
+The loopback and native WebView2 programs use the Rust OCR runtime with
+automatic GPU selection, CPU fallback and core-based worker limits. Install its assets with
 `python legal-pdf-parser/tools/install_ocr_runtime.py` before native packaging.
 The package smoke can also read the independently invented Lite scan using only
 the packaged addon and OCR assets: pass its fixture directory after the package
