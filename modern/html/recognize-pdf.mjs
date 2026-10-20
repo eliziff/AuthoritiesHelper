@@ -1,6 +1,7 @@
 // Rendering/recognition adapter; the Rust parser still owns page selection and structure.
 import { assetsReady, assetURL } from '../browser-ocr/assets.mjs';
 import { OCR_PARALLEL, recognizePage } from '../browser-ocr/ocr.mjs';
+import { readCachedPages, writeCachedPage } from './ocr-cache.mjs';
 
 // PDF.js opens and draws the pages in one worker (raster-worker.mjs), so this thread never draws or
 // reads a page's pixels (50-100 ms a page): it only routes them to the recognizer's workers. Left with
@@ -50,7 +51,7 @@ function useDocument(source, bytes) {
   let entry = documents.get(source);
   if (!entry) documents.set(source, entry = { users: 0, pages: null,
     // A copy: the worker takes the bytes it is given.
-    open: () => entry.pages ??= assetsReady().then(() => { const copy = bytes.slice();
+    open: () => entry.pages ??= assetsReady(['rasterWorker']).then(() => { const copy = bytes.slice();
       return ask({ open: source, bytes: copy }, [copy.buffer]); }).then(({ pages }) => pages) });
   entry.users += 1;
   return { open: entry.open, close() {
@@ -118,7 +119,7 @@ function drain() {
 }
 async function recognizeOne(source, key, bytes, page_index, signal) {
   signal.throwIfAborted();
-  const found = (await readCache(key))?.pages.find(page=>page.page_index===page_index);
+  const [found] = await readCachedPages(key, [page_index]);
   if (found) return found;
   const pdf = useDocument(source, bytes);
   let drawn;
@@ -135,7 +136,7 @@ async function recognizeOne(source, key, bytes, page_index, signal) {
       bbox: [x(line.x), y(line.y), x(line.x + line.width), y(line.y + line.height)],
     })) };
     signal.throwIfAborted();
-    await addCachedPage(key, source, result);
+    await writeCachedPage(key, result);
     return result;
   } finally { drawn?.bitmap.close(); pdf.close(); }
 }
@@ -144,8 +145,8 @@ export async function recognizePdf(bytes, sourceSha256, pages, signal, completed
   if (order !== undefined) sourceOrder.set(sourceSha256, order);
   else if (!sourceOrder.has(sourceSha256)) sourceOrder.set(sourceSha256, sourceOrder.size);
   const key = `${__OCR_RUNTIME_SHA256__}:${sourceSha256}`;
-  const cached = await readCache(key);
-  const retained = new Map((cached?.pages ?? []).map(page => [page.page_index, page]));
+  const cached = await readCachedPages(key, pages);
+  const retained = new Map(cached.map(page => [page.page_index, page]));
   // Held for the whole pass, so its pages share one open document.
   const pdf = useDocument(sourceSha256, bytes);
   try {
@@ -164,8 +165,8 @@ export async function recognizePdf(bytes, sourceSha256, pages, signal, completed
 
 const textPages = new WeakMap();
 export async function readRecognizedText(sourceSha256, pages) {
-  const cached = await readCache(`${__OCR_RUNTIME_SHA256__}:${sourceSha256}`);
-  return {pages:(cached?.pages ?? []).filter(page=>!pages || pages.includes(page.page_index+1)).map(page=>{
+  const cached = await readCachedPages(`${__OCR_RUNTIME_SHA256__}:${sourceSha256}`, pages?.map(page => page - 1));
+  return {pages:cached.map(page=>{
     // Stable page objects keep OCR progress from rebuilding existing selection layers.
     if (!textPages.has(page)) textPages.set(page, {
       pageNumber:page.page_index+1,width:page.width,height:page.height,
@@ -173,73 +174,4 @@ export async function readRecognizedText(sourceSha256, pages) {
     });
     return textPages.get(page);
   })};
-}
-
-// A disposable inference cache, keyed by both source bytes and the packaged model.
-// Failure/quota eviction only causes recognition again; it never loses a draft.
-let database;
-const memory = new Map();
-function remember(key, value) {
-  memory.delete(key);
-  memory.set(key,{value,size:JSON.stringify(value).length*2});
-  let size=[...memory.values()].reduce((total,item)=>total+item.size,0);
-  for(const [old,item] of memory){if(size<=64*1024*1024)break;memory.delete(old);size-=item.size;}
-}
-function cacheDatabase() {
-  return database ??= new Promise(resolve => {
-    const request = indexedDB.open('authorities-browser-ocr', 1);
-    request.onupgradeneeded = () => request.result.createObjectStore('pages', { keyPath: 'key' });
-    request.onsuccess = () => {
-      // Let go when the page's data is cleared, so it can be deleted.
-      request.result.onversionchange = () => { request.result.close(); database = undefined; };
-      resolve(request.result);
-    };
-    request.onerror = () => resolve(null);
-    request.onblocked = () => resolve(null);
-  });
-}
-async function readCache(key) {
-  if(memory.has(key))return memory.get(key).value;
-  try {
-    const db = await cacheDatabase();
-    if (!db) return null;
-    const value = await new Promise(resolve => {
-      const request = db.transaction('pages').objectStore('pages').get(key);
-      request.onsuccess = () => resolve(request.result?.value);
-      request.onerror = () => resolve(null);
-    });
-    if(value)remember(key,value);
-    return value;
-  } catch { return null; }
-}
-// Pages of one source finish side by side; each is added to the latest record, never a stale one.
-const adding = new Map();
-function addCachedPage(key, sourceSha256, result) {
-  const next = (adding.get(key) ?? Promise.resolve()).then(async () => {
-    const pages = ((await readCache(key))?.pages ?? []).filter(page => page.page_index !== result.page_index);
-    await writeCache(key, { source_sha256: sourceSha256, pages: [...pages, result] });
-  });
-  adding.set(key, next.catch(() => {}));
-  return next;
-}
-async function writeCache(key, value) {
-  remember(key,value);
-  try {
-    const db = await cacheDatabase();
-    if (!db) return;
-    await new Promise(resolve => {
-      const transaction = db.transaction('pages', 'readwrite'), store = transaction.objectStore('pages');
-      store.put({ key, value, used: Date.now(), size: JSON.stringify(value).length * 2 });
-      const records = store.getAll();
-      records.onsuccess = () => {
-        const rows = records.result.sort((a, b) => a.used - b.used);
-        let size = rows.reduce((total, row) => total + row.size, 0);
-        for (const row of rows) {
-          if (size <= 64 * 1024 * 1024) break;
-          store.delete(row.key); size -= row.size;
-        }
-      };
-      transaction.oncomplete = transaction.onerror = transaction.onabort = () => resolve();
-    });
-  } catch { /* Recognition remains usable without persistent browser storage. */ }
 }

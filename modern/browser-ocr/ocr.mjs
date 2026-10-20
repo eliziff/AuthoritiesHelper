@@ -100,8 +100,10 @@ export async function recognizePage(page, signal) {
   let ocr, abort;
   try {
     signal?.throwIfAborted();
-    await assetsReady();
     const backend = await processingBackend(); signal?.throwIfAborted();
+    await assetsReady(['recognitionWorker', 'detectorWorker', 'detectorModel',
+      ...(backend === 'webgpu' ? ['gpuModel', 'gpuMjs', 'gpuWasm'] : ['model', 'ortMjs', 'ortWasm'])]);
+    signal?.throwIfAborted();
     ocr = idle.pop() ?? new IndraOCR(backend); active.add(ocr);
     clearTimeout(ocr.ended);
     const cancelled = new Promise((_, reject) => {

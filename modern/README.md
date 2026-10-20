@@ -49,6 +49,13 @@ keep separate results, and files changed during assembly leave no reusable resul
 Check that boundary without building the app:
 `node AuthoritiesHelper/modern/html/build-cache.test.mjs`.
 
+Focused OCR storage and asset checks use real Chromium with invented data and no
+external services:
+`node --test --test-concurrency=1 AuthoritiesHelper/modern/html/ocr-cache.test.mjs AuthoritiesHelper/modern/browser-ocr/assets.test.mjs`.
+The full HTML stores completed OCR pages separately and inflates only its selected
+CPU/WebGPU assets. Its disposable OCR cache is replaced once when upgrading;
+saved drafts stay in their existing store.
+
 Engine builds need [WASI SDK 34](https://github.com/WebAssembly/wasi-sdk/releases/tag/wasi-sdk-34)
 for SQLite. Set `WASI_SDK_PATH` to its unpacked directory; the release workflow
 installs and verifies the Linux SDK itself.

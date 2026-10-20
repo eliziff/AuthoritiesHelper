@@ -17,19 +17,22 @@ function base64Bytes(value) {
   for (let index = 0; index < text.length; index += 1) out[index] = text.charCodeAt(index);
   return out;
 }
-const asDataUrl = (bytes, type) => new Promise((resolve, reject) => {
+const asDataUrl = (blob) => new Promise((resolve, reject) => {
   const reader = new FileReader();
   reader.onload = () => resolve(reader.result); reader.onerror = () => reject(reader.error);
-  reader.readAsDataURL(new Blob([bytes], { type }));
+  reader.readAsDataURL(blob);
 });
-let unpacking;
-/** Inflates the assets the page carries gzipped, once a page and off the main thread: every
- *  recognizer and PDF.js worker waits on it before it starts. */
-export function assetsReady() {
-  return unpacking ??= Promise.all([...packed()].map(async (name) => {
-    const bytes = new Uint8Array(await (await inflateAsset(packedValue(name))).arrayBuffer());
-    decoded.set(name, bytes);
-    if (DATA_URLS[name]) dataUrls.set(name, await asDataUrl(bytes, DATA_URLS[name]));
+const unpacking = new Map();
+/** Inflate only the assets this worker/backend uses, sharing concurrent requests. Assets sent
+ *  as data URLs keep that representation alone, rather than another full byte array too. */
+export function assetsReady(names) {
+  return Promise.all(names.filter(name => packed().has(name)).map(name => {
+    if (!unpacking.has(name)) unpacking.set(name, (async () => {
+      const response = await inflateAsset(packedValue(name));
+      if (DATA_URLS[name]) dataUrls.set(name, await asDataUrl(new Blob([await response.blob()], { type: DATA_URLS[name] })));
+      else decoded.set(name, new Uint8Array(await response.arrayBuffer()));
+    })());
+    return unpacking.get(name);
   }));
 }
 /** An embedded asset's bytes, decoded once a page (a recognizer made again does not decode its
