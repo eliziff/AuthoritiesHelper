@@ -13,7 +13,7 @@ test('base64 and served assets load on demand, share requests and preserve CPU/G
       const context = await browser.newContext();
       try {
         const page = await context.newPage(), fetched = [];
-        const names = ['model', 'gpuModel', 'ortMjs', 'ortWasm', 'gpuMjs', 'gpuWasm', 'recognitionWorker', 'detectorModel', 'rasterWorker'];
+        const names = ['model', 'gpuModel', 'ortMjs', 'ortWasm', 'gpuMjs', 'gpuWasm', 'recognitionWorker', 'indraDetector', 'rasterWorker'];
         // Invented assets exercise packaging and inflation without model weights or external services.
         const raw = Object.fromEntries(names.map(name => [name, Buffer.from(`orchard asset: ${name}`)]));
         const compressed = Object.fromEntries(names.map(name => [name, gzipSync(raw[name])]));
@@ -39,7 +39,7 @@ test('base64 and served assets load on demand, share requests and preserve CPU/G
           const worker = await (await fetch(assets.assetURL('rasterWorker'))).text();
           const pending = name => { try { assets.assetURL(name); return false; } catch { return true; } };
           const before = pending('ortWasm') && pending('gpuWasm');
-          const cpu = ['model', 'ortMjs', 'ortWasm', 'recognitionWorker', 'detectorModel'];
+          const cpu = ['model', 'ortMjs', 'ortWasm', 'recognitionWorker', 'indraDetector'];
           await Promise.all([assets.assetsReady(cpu), assets.assetsReady(cpu)]);
           const cpuModel = text(assets.bytes('model'));
           const cpuRuntime = await (await fetch(assets.assetURL('ortWasm'))).text();

@@ -1,6 +1,6 @@
 // Rendering/recognition adapter; the Rust parser still owns page selection and structure.
 import { assetsReady, assetURL } from '../browser-ocr/assets.mjs';
-import { OCR_PARALLEL, recognizePage } from '../browser-ocr/ocr.mjs';
+import { ocrParallelism, prepareOCR, recognizePage } from '../browser-ocr/ocr.mjs';
 import { readCachedPages, writeCachedPage } from './ocr-cache.mjs';
 
 // PDF.js opens and draws the pages in one worker (raster-worker.mjs), so this thread never draws or
@@ -107,7 +107,7 @@ function drain() {
   // A source with no page queued or being read by now has finished.
   for (const source of started) if (!reading.get(source) && !queue.some(job => job.source === source)) started.delete(source);
   queue.sort((a,b) => Number(b.priority)-Number(a.priority) || a.order-b.order);
-  while (running < OCR_PARALLEL && queue.length && (queue[0].priority || !held)) {
+  while (running < ocrParallelism() && queue.length && (queue[0].priority || !held)) {
     const job = queue.shift();
     running += 1; started.add(job.source); reading.set(job.source, (reading.get(job.source) ?? 0) + 1);
     job.run().then(job.resolve, job.reject).finally(() => {
@@ -125,7 +125,7 @@ async function recognizeOne(source, key, bytes, page_index, signal) {
   let drawn;
   try {
     await pdf.open();
-    // The page at 144 dpi (at most 12 MP), drawn in the raster worker.
+    // The owner's OCR resolution (at most 12 MP), drawn in the raster worker.
     drawn = await ask({ source, page: page_index });
     const { width, height, viewportWidth, viewportHeight } = drawn;
     const recognized = await recognizePage(drawn, signal);
@@ -152,7 +152,9 @@ export async function recognizePdf(bytes, sourceSha256, pages, signal, completed
   try {
     if (!pages) pages = Array.from({length:await pdf.open()},(_,index)=>index);
     completed(pages.filter(index=>retained.has(index)).length);
-    await Promise.all(pages.filter(page_index => !retained.has(page_index)).map(async page_index => {
+    const missing = pages.filter(page_index => !retained.has(page_index));
+    if (missing.length) await prepareOCR(signal);
+    await Promise.all(missing.map(async page_index => {
       signal?.throwIfAborted();
       retained.set(page_index, await readPage(sourceSha256, key, bytes, page_index,
         priorityPages?.includes(page_index) ?? false, signal));

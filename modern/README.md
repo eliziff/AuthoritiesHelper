@@ -78,15 +78,17 @@ for networked source acquisition. CanLII is never fetched: its page is linked an
 PDF attached. The new endpoint must be
 deployed separately: rebuilding standalone HTML does not update the remote Worker.
 Private ALR's existing local program provides the same endpoint after a program
-rebuild, so its served pages do not require that remote deployment. The HTML packages embed the
-checksum-verified Legal Browser OCR v0.2.2 Balanced Indra recognizer, learned line
-detector and CPU SIMD/WebGPU runtimes. Scanned pages are rendered at 144 dpi,
-recognized locally and passed to the shared PDF parser with their page geometry.
-WebGPU is selected when the browser exposes a suitable adapter with FP16 support;
-CPU execution remains available otherwise. The original model terms and restrictions
+rebuild, so its served pages do not require that remote deployment. The full HTML
+delegates recognition to Legal Browser OCR's embedding API and shared browser
+pipeline. That repository owns the default tier, resolution, backend and worker
+budgets. `browser-ocr/package.mjs` fetches its latest release, verifies the archive
+digest and asset manifest, and embeds the assets its default API requires.
+`AUTHORITIES_OCR_RUNTIME` can supply a local archive instead. Scans are recognized
+locally and passed to the shared PDF parser with their page geometry.
+The original model terms and restrictions
 are embedded with the assets; the weights are not covered by the application's MIT license.
-The loopback and native WebView2 programs use the Rust OCR runtime with
-automatic GPU selection, CPU fallback and core-based worker limits. Install its assets with
+The loopback and native WebView2 programs delegate OCR choices to Legal PDF
+Parser, with explicit environment overrides preserved. Install the latest model assets with
 `python legal-pdf-parser/tools/install_ocr_runtime.py` before native packaging.
 The package smoke can also read the independently invented Lite scan using only
 the packaged addon and OCR assets: pass its fixture directory after the package

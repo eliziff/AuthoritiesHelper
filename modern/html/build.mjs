@@ -192,7 +192,7 @@ export async function buildAuthoritiesHtml(output, { release = false, app, asset
   if (!native) ocr.rasterWorker = Buffer.from(rasterWorker).toString("base64");
   // Cached recognition binds both model assets and the adapter's rendering/preprocessing.
   const ocrKey = browserOcrKey({ ...ocr, pdfWorker: pdfWorker.toString("base64"),
-    adapter: readFileSync(path.join(here, '../browser-ocr/ocr.mjs')).toString("base64") });
+    adapter: Buffer.from(await bundleScript('../browser-ocr/ocr.mjs')).toString("base64") });
   // Gzip keeps the page small (these assets, the runtime and the fonts go in at a third of their
   // size): the page inflates the runtime as it starts and the recognizer's assets before the first
   // page is read, and the runtime Worker its engine, all off the main thread. Each is compressed
@@ -208,8 +208,7 @@ export async function buildAuthoritiesHtml(output, { release = false, app, asset
     renameSync(`${file}.${process.pid}`, file);
     return asset ? asset(Buffer.from(packed, "base64")) : packed;
   };
-  const packed = native ? [] : ["model", "gpuModel", "ortMjs", "ortWasm", "gpuMjs", "gpuWasm",
-    "recognitionWorker", "detectorWorker", "detectorModel", "rasterWorker"];
+  const packed = native ? [] : Object.keys(ocr).filter(name => Buffer.from(ocr[name], 'base64').length > 1024);
   for (const name of packed) ocr[name] = gzip(Buffer.from(ocr[name], "base64"));
   const payload = {
     ...!native && { runtime: gzip(Buffer.from(runtime.code)), engine: gzip(engine) }, ocr: { ...ocr, gzip: packed },

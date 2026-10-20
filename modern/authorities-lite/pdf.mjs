@@ -2,6 +2,7 @@ import { getDocument, GlobalWorkerOptions, Util, OPS } from 'pdfjs-dist/build/pd
 import { PDFDocument } from 'pdf-lib';
 import * as pdfLib from 'pdf-lib';
 import { createSearchablePdf } from '../../../legal-browser-ocr/pdf-export.js';
+import { OCR_DPI } from '../../../legal-browser-ocr/ocr-tiers.js';
 import { cropToPdfTransform } from '../../../legal-browser-ocr/text-layer.js';
 import { recognizePage } from './ocr.mjs';
 import { assetURL } from './assets.mjs';
@@ -57,7 +58,7 @@ export function nativeLines(content, viewport, pageNumber) {
   }
   return output;
 }
-async function rendered(page, scale = 2) {
+async function rendered(page, scale = OCR_DPI / 72) {
   let viewport = page.getViewport({ scale });
   if (viewport.width*viewport.height > 12_000_000) viewport=page.getViewport({scale:scale*Math.sqrt(12_000_000/(viewport.width*viewport.height))});
   const canvas=document.createElement('canvas');canvas.width=Math.ceil(viewport.width);canvas.height=Math.ceil(viewport.height);

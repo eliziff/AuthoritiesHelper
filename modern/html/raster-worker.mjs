@@ -4,6 +4,7 @@
 // It is the viewer's PDF.js, with the viewer's worker and image decoders, sent by the page.
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { createPdfRuntime } from '../../../shared/browser-pdf.mjs';
+import { OCR_DPI } from '../../../legal-browser-ocr/ocr-tiers.js';
 
 let options, imageDecoder, started;
 // Requests wait until the page has sent PDF.js's worker; they arrive in order, the worker after them.
@@ -21,7 +22,7 @@ async function draw(source, index) {
     const raw = page.view, rotated = page.rotate % 180 !== 0;
     const width = raw[rotated ? 3 : 2] - raw[rotated ? 1 : 0];
     const height = raw[rotated ? 2 : 3] - raw[rotated ? 0 : 1];
-    let viewport = page.getViewport({ scale: 144 / 72 });
+    let viewport = page.getViewport({ scale: OCR_DPI / 72 });
     if (viewport.width * viewport.height > 12_000_000)
       viewport = page.getViewport({ scale: viewport.scale * Math.sqrt(12_000_000 / (viewport.width * viewport.height)) });
     const canvas = new OffscreenCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));

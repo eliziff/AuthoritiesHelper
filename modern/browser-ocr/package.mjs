@@ -1,28 +1,14 @@
-// One pinned browser recognizer for both standalone Authorities packages.
+// Release assets and the embedding inventory belong to Legal Browser OCR.
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
+import { embeddingAssetPaths } from '../../../legal-browser-ocr/runtime-assets.js';
 
-export const OCR_RUNTIME_SHA256 = '7273b362c051cf54e143ccc6e171e75ab6dbf8fa2b2845b96a95535df067ab19';
 const vendor = path.resolve(import.meta.dirname, '../vendor'), runtime = path.join(vendor, 'runtime');
-// Both standalone pages use the released Balanced Indra models, detector and CPU/GPU runtimes.
-const files = {
-  model: path.join(runtime, 'assets/indra-followup/student8ids/model.onnx'),
-  gpuModel: path.join(runtime, 'assets/indra-followup/gpu8h/model.onnx'),
-  codec: path.join(runtime, 'assets/indra-followup/student8ids/codec.json'),
-  ortMjs: path.join(runtime, 'dist/ort-wasm-simd-threaded.mjs'),
-  ortWasm: path.join(runtime, 'dist/ort-wasm-simd-threaded.wasm'),
-  gpuMjs: path.join(runtime, 'dist/ort-wasm-simd-threaded.jsep.mjs'),
-  gpuWasm: path.join(runtime, 'dist/ort-wasm-simd-threaded.jsep.wasm'),
-  recognitionWorker: path.join(runtime, 'dist/recognition-worker.js'),
-  detectorWorker: path.join(runtime, 'dist/detector-worker.js'),
-  detectorModel: path.join(runtime, 'assets/detectors/indra/model.onnx'),
-  detectorConfig: path.join(runtime, 'assets/detectors/config.json'),
-  packageNotice: path.join(runtime, 'assets/manifest.json'),
-};
+const files = { ...embeddingAssetPaths, packageNotice: 'assets/manifest.json' };
 
 async function download(url) {
   const response = await fetch(url, { signal: AbortSignal.timeout(90_000) });
@@ -35,23 +21,42 @@ async function unpack(bytes, destination, strip = false) {
   try {
     const archive = path.join(temporary, 'input.tar.gz');
     await fs.writeFile(archive, bytes);
+    const entries = execFileSync('tar', ['-tzf', archive], { encoding: 'utf8' }).trim().split(/\r?\n/u);
+    for (const entry of entries) if (entry.startsWith('/') || /[\\:\x00]/u.test(entry) || entry.split('/').includes('..'))
+      throw new Error('OCR archive path escapes its package.');
+    if (execFileSync('tar', ['-tvzf', archive], { encoding: 'utf8' }).trim().split(/\r?\n/u)
+      .some(entry => !['-', 'd'].includes(entry[0]))) throw new Error('OCR archives must contain ordinary files and directories.');
     await fs.mkdir(destination, { recursive: true });
     execFileSync('tar', ['-xzf', archive, ...(strip ? ['--strip-components=1'] : []), '-C', destination]);
   } finally { await fs.rm(temporary, { recursive: true, force: true }); }
 }
 
 export async function prepareBrowserOcr() {
-  const runtime = process.env.AUTHORITIES_OCR_RUNTIME
-    ? await fs.readFile(process.env.AUTHORITIES_OCR_RUNTIME)
-    : await download('https://github.com/eliziff/legal-browser-ocr/releases/download/v0.2.2/legal-browser-ocr-runtime.tar.gz');
-  if (crypto.createHash('sha256').update(runtime).digest('hex') !== OCR_RUNTIME_SHA256)
-    throw new Error('OCR runtime checksum mismatch.');
-  await unpack(runtime, path.join(vendor, 'runtime'));
+  let archive;
+  if (process.env.AUTHORITIES_OCR_RUNTIME) archive = await fs.readFile(process.env.AUTHORITIES_OCR_RUNTIME);
+  else {
+    const response = await fetch('https://api.github.com/repos/eliziff/legal-browser-ocr/releases/latest',
+      { headers: { Accept: 'application/vnd.github+json' }, signal: AbortSignal.timeout(30_000) });
+    if (!response.ok) throw new Error(`Browser OCR release lookup failed (${response.status}).`);
+    const asset = (await response.json()).assets.find(asset => asset.name === 'legal-browser-ocr-runtime.tar.gz');
+    if (!asset || !/^sha256:[a-f0-9]{64}$/u.test(asset.digest)) throw new Error('Browser OCR release has no verified runtime asset.');
+    archive = await download(asset.browser_download_url);
+    if (`sha256:${crypto.createHash('sha256').update(archive).digest('hex')}` !== asset.digest)
+      throw new Error('OCR runtime checksum mismatch.');
+  }
+  await unpack(archive, runtime);
+  await browserOcrAssets();
 }
 
 export async function browserOcrAssets() {
-  return Object.fromEntries(await Promise.all(Object.entries(files).map(async ([name, file]) =>
-    [name, (await fs.readFile(file)).toString('base64')])));
+  const manifest = JSON.parse(await fs.readFile(path.join(runtime, files.packageNotice), 'utf8'));
+  return Object.fromEntries(await Promise.all(Object.entries(files).map(async ([name, file]) => {
+    const bytes = await fs.readFile(path.join(runtime, file)), expected = manifest.assets[file];
+    if (name !== 'packageNotice' && (!expected || bytes.length !== expected.bytes ||
+        crypto.createHash('sha256').update(bytes).digest('hex') !== expected.sha256))
+      throw new Error(`Packaged OCR asset does not match its manifest: ${file}`);
+    return [name, bytes.toString('base64')];
+  })));
 }
 /** Names this recognizer, so text recognized by another build is not reused. */
 export const browserOcrKey = (assets) => crypto.createHash('sha256')

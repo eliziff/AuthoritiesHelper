@@ -73,7 +73,7 @@ Only citations are sent to A2AJ. PDF acquisition sends public publisher URLs to 
 
 ## Scope and verification
 
-The citation/structure core is the actual shared Rust engine. PDF extraction is PDF.js plus a measured-geometry adapter, not complete native legal-pdf-parser parity. OCR uses Legal Browser OCR v0.2.0 Balanced Indra, its learned line detector, CPU SIMD/WebGPU inference and searchable-PDF code. No LLM is required. The Indra weights retain their modified OpenRAIL terms and use restrictions, embedded in the page and copied to `OCR-NOTICES.json` alongside the build.
+The citation/structure core is the actual shared Rust engine. PDF extraction is PDF.js plus a measured-geometry adapter, not complete native legal-pdf-parser parity. OCR delegates to Legal Browser OCR's embedding API, shared browser pipeline and default resolution. Prepare resolves its latest checksum-verified release assets. No LLM is required. The Indra weights retain their modified OpenRAIL terms and use restrictions, embedded in the page and copied to `OCR-NOTICES.json` alongside the build.
 
 Ambiguous paragraphs/items remain visible findings. A reporter-page pinpoint opens its uniquely mapped PDF page when known, but the user still marks the intended passage; unknown or duplicate labels do not become physical page guesses. Lite uses its existing native text and selective OCR evidence for reporter starts and corroborated embedded labels. It abstains on arbitrary printed folios it cannot establish. Poor scans, complex columns, encrypted PDFs or unreadable first-page identities may require a different source or manual adjustment. Per-file limits do not guarantee that an arbitrarily large batch fits device memory.
 
