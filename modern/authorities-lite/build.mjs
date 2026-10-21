@@ -1,6 +1,6 @@
 import fs from 'node:fs';import path from 'node:path';import {build} from 'esbuild';import crypto from 'node:crypto';import {execFileSync} from 'node:child_process';import {withContentSecurityPolicy} from '../html/content-policy.mjs';import {DEFAULT_SERVICE_URL} from '../provider-pdf-service.mjs';
 import { browserOcrAssets } from '../browser-ocr/package.mjs';
-import { gzipSync } from 'node:zlib';
+import { gzipSync, gunzipSync } from 'node:zlib';
 const root=path.resolve(import.meta.dirname,'..'),folder=path.join(root,'authorities-lite'),out=path.join(root,'dist','authorities-lite');
 fs.mkdirSync(out,{recursive:true});fs.mkdirSync(path.join(folder,'vendor'),{recursive:true});
 const beaver=path.resolve(root,'../..');
@@ -10,8 +10,8 @@ if(!fs.existsSync(engine)||!fs.existsSync(path.join(folder,'vendor/legal-structu
 const read=p=>fs.readFileSync(path.join(root,p),'utf8');
 const ocr=await browserOcrAssets(),assets={...ocr,gzip:[]};
 for(const [name,value]of Object.entries(ocr)){const bytes=Buffer.from(value,'base64'),packed=gzipSync(bytes,{level:9});if(packed.length<bytes.length){assets[name]=packed.toString('base64');assets.gzip.push(name);}}
-for(const [name,p]of Object.entries({structure:'authorities-lite/vendor/legal-structure.wasm',pdfWorker:'vendor/runtime/dist/pdf.worker.min.mjs',
- caseAliases:path.join(pinpointer,'canlii-case-aliases.tsv')}))assets[name]=fs.readFileSync(path.resolve(root,p)).toString('base64');
+for(const [name,p]of Object.entries({structure:'authorities-lite/vendor/legal-structure.wasm',pdfWorker:'vendor/runtime/dist/pdf.worker.min.mjs'}))assets[name]=fs.readFileSync(path.resolve(root,p)).toString('base64');
+assets.caseAliases=gunzipSync(fs.readFileSync(path.join(pinpointer,'canlii-case-aliases.tsv.gz'))).toString('base64');
 // Tailwind compiles the Beaver-styled interface into one inline stylesheet.
 execFileSync(process.execPath,[path.join(root,'node_modules/@tailwindcss/cli/dist/index.mjs'),'-i',path.join(folder,'styles.css'),'-o',path.join(folder,'vendor/styles.css'),'--minify'],{stdio:'inherit'});
 const styles=read('authorities-lite/vendor/styles.css').replaceAll('</style','<\\/style');
