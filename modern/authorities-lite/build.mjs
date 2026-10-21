@@ -1,5 +1,6 @@
 import fs from 'node:fs';import path from 'node:path';import {build} from 'esbuild';import crypto from 'node:crypto';import {execFileSync} from 'node:child_process';import {withContentSecurityPolicy} from '../html/content-policy.mjs';import {DEFAULT_SERVICE_URL} from '../provider-pdf-service.mjs';
 import { browserOcrAssets } from '../browser-ocr/package.mjs';
+import { gzipSync } from 'node:zlib';
 const root=path.resolve(import.meta.dirname,'..'),folder=path.join(root,'authorities-lite'),out=path.join(root,'dist','authorities-lite');
 fs.mkdirSync(out,{recursive:true});fs.mkdirSync(path.join(folder,'vendor'),{recursive:true});
 const beaver=path.resolve(root,'../..');
@@ -7,7 +8,9 @@ const pinpointer=path.resolve(process.env.LEGAL_PINPOINTER_ROOT||path.join(beave
 const engine=path.join(folder,'vendor/legal-structure.wasm');
 if(!fs.existsSync(engine)||!fs.existsSync(path.join(folder,'vendor/legal-structure.js')))throw new Error('Browser engine missing. Run node html/build-engine.mjs --lite from modern first.');
 const read=p=>fs.readFileSync(path.join(root,p),'utf8');
-const assets=await browserOcrAssets();for(const [name,p]of Object.entries({structure:'authorities-lite/vendor/legal-structure.wasm',pdfWorker:'vendor/runtime/dist/pdf.worker.min.mjs',
+const ocr=await browserOcrAssets(),assets={...ocr,gzip:[]};
+for(const [name,value]of Object.entries(ocr)){const bytes=Buffer.from(value,'base64'),packed=gzipSync(bytes,{level:9});if(packed.length<bytes.length){assets[name]=packed.toString('base64');assets.gzip.push(name);}}
+for(const [name,p]of Object.entries({structure:'authorities-lite/vendor/legal-structure.wasm',pdfWorker:'vendor/runtime/dist/pdf.worker.min.mjs',
  caseAliases:path.join(pinpointer,'canlii-case-aliases.tsv')}))assets[name]=fs.readFileSync(path.resolve(root,p)).toString('base64');
 // Tailwind compiles the Beaver-styled interface into one inline stylesheet.
 execFileSync(process.execPath,[path.join(root,'node_modules/@tailwindcss/cli/dist/index.mjs'),'-i',path.join(folder,'styles.css'),'-o',path.join(folder,'vendor/styles.css'),'--minify'],{stdio:'inherit'});
@@ -21,9 +24,9 @@ fs.writeFileSync(path.join(out,'Authorities-lite.html'),html);
 const worker=await build({metafile:true,entryPoints:[path.join(folder,'worker.mjs')],bundle:true,format:'esm',platform:'browser',target:'es2022',outfile:path.join(out,'worker.mjs'),legalComments:'inline'});
 fs.copyFileSync(path.join(folder,'wrangler.jsonc'),path.join(out,'wrangler.jsonc'));
 const hash=bytes=>crypto.createHash('sha256').update(bytes).digest('hex');
-const sources={integration:'MIT',sources:Object.fromEntries([...new Set([...Object.keys(app.metafile.inputs),...Object.keys(worker.metafile.inputs)])].sort().map(file=>[path.relative(beaver,path.resolve(file)).replaceAll('\\','/'),hash(fs.readFileSync(file))])),assets:Object.fromEntries(Object.entries(assets).map(([name,bytes])=>[name,hash(Buffer.from(bytes,'base64'))]))};
+const sources={integration:'MIT',sources:Object.fromEntries([...new Set([...Object.keys(app.metafile.inputs),...Object.keys(worker.metafile.inputs)])].sort().map(file=>[path.relative(beaver,path.resolve(file)).replaceAll('\\','/'),hash(fs.readFileSync(file))])),assets:Object.fromEntries(Object.entries(assets).filter(([name])=>name!=='gzip').map(([name,bytes])=>[name,hash(Buffer.from(bytes,'base64'))]))};
 fs.writeFileSync(path.join(out,'SOURCES.json'),JSON.stringify(sources,null,2));
-fs.writeFileSync(path.join(out,'OCR-NOTICES.json'),Buffer.from(assets.packageNotice,'base64'));
+fs.writeFileSync(path.join(out,'OCR-NOTICES.json'),Buffer.from(ocr.packageNotice,'base64'));
 for(const file of ['README.md','VALIDATION.md','THIRD_PARTY_NOTICES.md'])if(fs.existsSync(path.join(folder,file)))fs.copyFileSync(path.join(folder,file),path.join(out,file));
 fs.appendFileSync(path.join(out,'THIRD_PARTY_NOTICES.md'),'\n'+fs.readFileSync(path.join(beaver,'common-law-cite/crates/legal-citations/NOTICE'),'utf8'));
 fs.copyFileSync(path.join(root,'..','LICENSE'),path.join(out,'LICENSE'));

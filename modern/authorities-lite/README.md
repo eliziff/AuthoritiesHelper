@@ -64,6 +64,8 @@ Prepare downloads only the checksum-verified OCR model/runtime. Compile the engi
 again only after Rust changes; ordinary Lite assembly reuses it. The aliases come
 from the `legal-pinpointer` checkout; `LEGAL_PINPOINTER_ROOT` can name an existing
 owning checkout. `SOURCES.json` records the actual bundled source and asset hashes.
+The page compresses OCR assets and inflates only those its selected CPU/GPU
+backend needs, using the same asset loader as full Authorities.
 
 The Worker accepts only approved A2AJ publisher hosts and decision/PDF paths over HTTPS. Every redirect is checked before following, stays on the publisher's origin, and carries no client authorization/cookies upstream. Publisher-owned controls identify the original PDF; the response must have an accepted media type and `%PDF-` signature. Source HTML is limited to 2 MB, PDFs to 100 MiB, redirects to five and duration to 60 seconds. PDF bytes stream through the Worker rather than being buffered in full.
 
