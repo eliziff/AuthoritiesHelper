@@ -22,12 +22,6 @@ export function serviceURL(raw, path = '/health') {
   if (url.username || url.password || url.search || url.hash || (url.pathname !== '/' && !['/health','/pdf'].includes(url.pathname))) throw new Error('Use the Worker base address, without a path or query.');
   url.pathname = path; return url;
 }
-export async function checkService(raw) {
-  const r = await fetch(serviceURL(raw), { credentials: 'omit', referrerPolicy: 'no-referrer', signal: AbortSignal.timeout(15_000) });
-  const value = await r.json();
-  if (!r.ok || !value.ok || value.service !== 'authorities-provider-pdf') throw new Error(value.error || 'This is not the Authorities PDF Worker.');
-  return value;
-}
 // A browser fetch that never gets a CORS-readable response rejects with a bare TypeError ("Failed to fetch").
 // Name the service and step instead, so a failure says what could not be reached.
 // The download service answers a page whose address it does not serve without letting it read the
