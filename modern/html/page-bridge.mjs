@@ -69,7 +69,10 @@ function nativeChannel(base) {
   const session = crypto.randomUUID(), outgoing = [];
   const address = (path) => new URL(`${base}${path}?session=${session}`, location.href);
   let sending = false, stopped = false;
-  const channel = { onmessage: null, onerror: null, terminate() { stopped = true; } };
+  // The program serves every page open at once; this one's work ends as it goes (a reload, a closed Word pane).
+  const close = () => { stopped = true; navigator.sendBeacon(address("close")); };
+  addEventListener("pagehide", close, { once: true });
+  const channel = { onmessage: null, onerror: null, terminate: close };
   const fail = (error) => { if (!stopped) { stopped = true; channel.onerror?.({ message: error.message }); } };
   const answered = async (response) => {
     if (!response.ok) throw new Error(await response.text().catch(() => "") || `the program answered ${response.status}`);

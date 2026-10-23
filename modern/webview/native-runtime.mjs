@@ -4,13 +4,15 @@
 // held until there are some; both travel the window's request pipe (launch.mjs), and bytes travel as bytes
 // (../html/runtime-frames.mjs). The runtime stays loaded while the program runs.
 //
-// A page's lookups ask the page for what its own store keeps (publisher PDFs and sources' answers,
-// ../html/source-pdf-cache.mjs). The native engine recognizes scanned pages; the program answers the
-// legal source and publisher PDF services' requests itself (`local`). Bundle with runtime-plugin.mjs.
+// It serves every page open at once (a Word pane in each document), each page's work its own: a page that closes
+// (it says so as it goes; one that stops asking is taken for closed) ends what it asked for. A page's lookups ask that
+// page for what its own store keeps (publisher PDFs and sources' answers, ../html/source-pdf-cache.mjs). The native
+// engine recognizes scanned pages; the program answers the legal source and publisher PDF services' requests itself
+// (`local`). Bundle with runtime-plugin.mjs.
+import { AsyncLocalStorage } from "node:async_hooks";
 import { ApplicationError } from "../../../backend/src/lib/applicationError";
 import { authoritySourceServices, resolveAuthoritiesSources } from "../../../backend/src/lib/authoritiesSourceResolution";
 import { reachForeignCaseHosts } from "../../../backend/src/lib/legalSources";
-import { structureNative } from "../../../backend/src/lib/structureNative";
 import { decodeFrame, encodeFrame } from "../html/runtime-frames.mjs";
 import { keptPdf, pageAnswered, usePage } from "../html/source-pdf-cache.mjs";
 import { useServiceFetch } from "../html/undici.mjs";
@@ -18,6 +20,8 @@ import { useServedFiles } from "./node-sqlite.mjs";
 
 // A poll is answered within the window's wait for any answer (120 seconds).
 const HOLD_MS = 50_000;
+// A page that has not asked for its messages in this long is gone (it asks again as soon as each poll is answered).
+const GONE_MS = 3 * HOLD_MS;
 // A program built without the US and UK publishers' hosts (../html/undici.mjs) looks for no decision there.
 reachForeignCaseHosts(__UK_CASE_LAW__);
 const bytes = (frame, offset, length) => Buffer.from(frame.buffer, frame.byteOffset + offset, length);
@@ -41,10 +45,10 @@ export function createNativeRuntime({ createOperations, mountStore, caseMismatch
   });
   useServedFiles((url) => { try { const at = new URL(url); return at.origin === origin ? servedFile(at.pathname) : null; } catch { return null; } });
 
-  // The page now open; a reload starts another, and what the last one asked for ends.
-  let page = null;
+  // The pages open, by the id each made; the page whose operation is running (`asking`), which its lookups ask.
+  const pages = new Map(), closed = new Set(), asking = new AsyncLocalStorage();
   const post = (session, message) => {
-    if (session !== page) return false;
+    if (!session || pages.get(session.id) !== session) return false;
     // A step's progress the page has not yet been sent is said by the next one: each answer costs the window a request.
     if (message.type === "progress") {
       const earlier = session.queue.findIndex((queued) => queued.type === "progress" && queued.id === message.id);
@@ -55,8 +59,8 @@ export function createNativeRuntime({ createOperations, mountStore, caseMismatch
     return true;
   };
   usePage((message) => {
-    // Nothing kept is known when no page is open to ask.
-    if (!post(page, message) && message.id !== undefined) pageAnswered({ id: message.id });
+    // Nothing kept is known when the page that asked is gone.
+    if (!post(asking.getStore(), message) && message.id !== undefined) pageAnswered({ id: message.id });
   });
   let operations;
   function load() {
@@ -66,8 +70,6 @@ export function createNativeRuntime({ createOperations, mountStore, caseMismatch
     operations = createOperations((draft, _sources, signal, authorityId, progress, keptOnly) =>
       resolveAuthoritiesSources(draft, sources, signal, authorityId, progress, keptOnly, caseMismatch));
     if (mountStore) operations["mount-store"] = mountStore;
-    // The engine loads with the runtime, not with the first document.
-    structureNative();
     return operations;
   }
 
@@ -77,9 +79,9 @@ export function createNativeRuntime({ createOperations, mountStore, caseMismatch
     try {
       const operations = load();
       if (!Object.hasOwn(operations, operation)) throw new ApplicationError(400, "Unknown Authorities operation.");
-      const result = await operations[operation](input, { signal: controller.signal,
+      const result = await asking.run(session, () => operations[operation](input, { signal: controller.signal,
         progress: (message) => post(session, { type: "progress", id, message }),
-        quoteProgress: (value) => post(session, { type: "quote-progress", id, value }) });
+        quoteProgress: (value) => post(session, { type: "quote-progress", id, value }) }));
       controller.signal.throwIfAborted();
       post(session, { type: "result", id, result });
     } catch (error) {
@@ -101,23 +103,32 @@ export function createNativeRuntime({ createOperations, mountStore, caseMismatch
     else if (message.type === "source-pdf" || message.type === "source-answer") pageAnswered(message);
   }
 
-  const closed = new Set();
+  /** A page closed: what it asked for ends. */
+  function close(session) {
+    pages.delete(session.id);
+    closed.add(session.id);
+    for (const controller of session.active.values()) controller.abort();
+    session.waiting?.();
+  }
   function open(id) {
     if (!/^[0-9a-f-]{36}$/u.test(id ?? "")) throw new ApplicationError(400, "This runtime request names no page.");
-    if (page?.id === id) return page;
-    if (closed.has(id)) throw new ApplicationError(409, "Another page opened the runtime.");
-    // The page that opens now is the one the runtime serves; what the last one asked for ends.
-    if (page) {
-      closed.add(page.id);
-      for (const controller of page.active.values()) controller.abort();
-      page.waiting?.();
-    }
-    return page = { id, queue: [], waiting: null, active: new Map() };
+    if (closed.has(id)) throw new ApplicationError(409, "This page closed.");
+    const now = Date.now();
+    for (const other of pages.values()) if (other.id !== id && !other.waiting && now - other.asked > GONE_MS) close(other);
+    let session = pages.get(id);
+    if (!session) pages.set(id, session = { id, queue: [], waiting: null, active: new Map(), asked: now });
+    session.asked = now;
+    return session;
   }
 
   /** Answers the page's request at /runtime/…; anything else is not the runtime's. */
   async function handle(request) {
     const url = new URL(request.url);
+    if (url.pathname === "/runtime/close" && request.method === "POST") {
+      const session = pages.get(url.searchParams.get("session"));
+      if (session) close(session);
+      return new Response(null, { status: 204 });
+    }
     const session = open(url.searchParams.get("session"));
     if (url.pathname === "/runtime/send" && request.method === "POST") {
       const messages = decodeFrame(new Uint8Array(await request.arrayBuffer()), bytes);
@@ -126,14 +137,15 @@ export function createNativeRuntime({ createOperations, mountStore, caseMismatch
       return new Response(null, { status: 204 });
     }
     if (url.pathname === "/runtime/poll" && request.method === "GET") {
-      if (!session.queue.length && page === session) await new Promise((resolve) => {
+      if (!session.queue.length && pages.get(session.id) === session) await new Promise((resolve) => {
         const done = () => { clearTimeout(timer); request.signal.removeEventListener("abort", done); session.waiting = null; resolve(); };
         const timer = setTimeout(done, HOLD_MS);
         session.waiting?.();
         session.waiting = done;
         request.signal.addEventListener("abort", done, { once: true });
       });
-      if (page !== session) return new Response("Another page opened the runtime.", { status: 409 });
+      session.asked = Date.now();
+      if (pages.get(session.id) !== session) return new Response("This page closed.", { status: 409 });
       if (!session.queue.length) return new Response(null, { status: 204 });
       return new Response(encodeFrame(session.queue.splice(0)), { headers: {
         "Content-Type": "application/octet-stream", "Cache-Control": "no-store" } });
