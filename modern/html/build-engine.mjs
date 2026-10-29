@@ -1,7 +1,7 @@
 // Explicit browser-engine build; HTML assembly only reads these artifacts.
-import "../../../scripts/background-work.mjs";
+import { cargoEnv } from "../../../scripts/cargo.mjs";
 import { spawn, execFileSync } from "node:child_process";
-import { constants, homedir, setPriority } from "node:os";
+import { constants, setPriority } from "node:os";
 import { mkdirSync, renameSync } from "node:fs";
 import path from "node:path";
 
@@ -15,12 +15,8 @@ const profile = release ? "release" : "debug";
 const repo = path.resolve(process.env.BEAVER_CHECKOUT || path.join(import.meta.dirname, "../../.."));
 const manifest = path.join(repo, lite ? "AuthoritiesHelper/modern/authorities-lite/engine/Cargo.toml" : "native/legal-structure-node/Cargo.toml");
 const target = lite ? "wasm32-unknown-unknown" : "wasm32-wasip1";
-const targetDir = path.join(repo, "native/legal-structure-node/target");
-const env = Object.fromEntries(Object.entries(process.env).filter(([key]) =>
-  !key.startsWith("CARGO_PROFILE_") && !(key.startsWith("CARGO_TARGET_") && /_(RUSTFLAGS|LINKER)$/.test(key)) &&
-  !["CARGO_TARGET_DIR", "CARGO_BUILD_TARGET", "CARGO_BUILD_RUSTFLAGS", "CARGO_INCREMENTAL",
-    "RUSTFLAGS", "CARGO_ENCODED_RUSTFLAGS", "RUSTC_WRAPPER", "RUSTC_WORKSPACE_WRAPPER"].includes(key)));
-env.CARGO_TARGET_DIR = targetDir;
+// Built in the environment every build of the workspace shares (scripts/cargo.mjs), into its one target folder.
+const env = cargoEnv(repo), targetDir = env.CARGO_TARGET_DIR;
 // The engine reads the local A2AJ store with SQLite, whose C compiles with wasi-sdk's clang.
 if (!lite) {
   const sdk = process.env.WASI_SDK_PATH;
@@ -28,10 +24,6 @@ if (!lite) {
   Object.assign(env, { CC_wasm32_wasip1: path.join(sdk, "bin/clang"), AR_wasm32_wasip1: path.join(sdk, "bin/llvm-ar"),
     CFLAGS_wasm32_wasip1: `--sysroot=${path.join(sdk, "share/wasi-sysroot")}` });
 }
-env.CARGO_ENCODED_RUSTFLAGS = [[homedir(), "/home"],
-  [process.env.RUSTUP_HOME ?? path.join(homedir(), ".rustup"), "/rustup"],
-  [process.env.CARGO_HOME ?? path.join(homedir(), ".cargo"), "/cargo"], [repo, "/beaver"]]
-  .map(([from, to]) => `--remap-path-prefix=${from}=${to}`).join("\x1f");
 const child = spawn("cargo", ["build", "--locked", "--offline", ...release ? ["--release"] : [],
   "--target", target, "--manifest-path", manifest], { cwd: repo, env, stdio: "inherit" });
 // The build yields to interactive work.
