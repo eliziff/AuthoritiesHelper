@@ -64,11 +64,12 @@ async function buildFrontend(release, entry, store, native) {
       generateBundle() { watch = this.getWatchFiles?.() ?? []; },
     }, {name:'browser-pdf-text',enforce:'pre',
       resolveId(source, importer) {
-        // Another app built on this page (ALR) starts from its own entry, which may live outside this
-        // checkout: its packages are the frontend's.
+        // Another app built on this page (ALR, Authority Linker) starts from its own entry, outside the
+        // frontend: its packages are the frontend's, so the page holds one React.
         if (entry && /[\\/]authoritiesMain\.tsx$/u.test(source)) return entry;
         if (entry && importer && /^[@\w]/u.test(source) && !source.startsWith('@/') &&
-            !path.resolve(importer).startsWith(repo)) return this.resolve(source, path.join(frontend, 'src/authoritiesMain.tsx'), { skipSelf: true });
+            (!path.resolve(importer).startsWith(repo) || path.resolve(importer).startsWith(path.dirname(entry))))
+          return this.resolve(source, path.join(frontend, 'src/authoritiesMain.tsx'), { skipSelf: true });
         if(source === './standalonePdfText' && !native) return path.join(here,'standalone-pdf-text.mjs');
         // The viewer's PDF.js worker comes from the page bridge, gzipped, not inlined as a data: URL.
         if(source === './pdfWorkerUrl') return path.join(here,'standalone-pdf-worker.mjs');
@@ -146,10 +147,11 @@ export function withoutGrammarNotes(engine) {
  *  off the computer and holds no code that would (runtime-bundle.mjs). `workExtents: false` leaves the works pack
  *  out of its runtime (runtime-bundle.mjs). `connectSources`: the only hosts the page and its
  *  Workers may connect to (content-policy.mjs), in place of those its runtime reaches (undici.mjs); [] for none.
+ *  `pdfs: false`: a page that reads no PDFs (Authority Linker) carries no recognizer, PDF worker, decoders or fonts.
  *  `nativeRuntime`: the page of a desktop program that runs the runtime itself (../webview/native-runtime.mjs): it
  *  carries neither the runtime nor its engine. */
 export async function buildAuthoritiesHtml(output, { release = false, app, asset } = {}) {
-  const native = !!app?.nativeRuntime;
+  const native = !!app?.nativeRuntime, pdfs = app?.pdfs !== false;
   // A dev page takes the engine built last, fast to compile; a release page only the optimized one,
   // and never one older than the engine's latest changes.
   const built = (profile) => path.join(engineCrate, `target/wasm32-wasip1/${profile}/legal_structure_node.wasm`);
@@ -184,12 +186,12 @@ export async function buildAuthoritiesHtml(output, { release = false, app, asset
     cached(cacheDir, `frontend-${native ? "native-" : ""}${release ? "release" : "development"}${app ? `-${app.name}` : ""}`,
       sha256(process.version + viteEnvironment + buildFrontend.toString() + bundledFiles.toString() + packageManifests.toString() + (app?.entry ?? "") + (app?.store ?? "")),
       () => buildFrontend(release, app?.entry, app?.store, native), frontend),
-    native ? {} : browserOcrAssets(),
-    native ? "" : bundleScript("raster-worker.mjs"),
+    native || !pdfs ? {} : browserOcrAssets(),
+    native || !pdfs ? "" : bundleScript("raster-worker.mjs"),
   ]);
   const ocr = { ...assets };
   const pdfWorker = readFileSync(path.join(pdfjs, "legacy/build/pdf.worker.min.mjs"));
-  if (!native) ocr.rasterWorker = Buffer.from(rasterWorker).toString("base64");
+  if (rasterWorker) ocr.rasterWorker = Buffer.from(rasterWorker).toString("base64");
   // Cached recognition binds both model assets and the adapter's rendering/preprocessing.
   const ocrKey = browserOcrKey({ ...ocr, pdfWorker: pdfWorker.toString("base64"),
     adapter: Buffer.from(await bundleScript('../browser-ocr/ocr.mjs')).toString("base64") });
@@ -212,11 +214,13 @@ export async function buildAuthoritiesHtml(output, { release = false, app, asset
   for (const name of packed) ocr[name] = gzip(Buffer.from(ocr[name], "base64"));
   const payload = {
     ...!native && { runtime: gzip(Buffer.from(runtime.code)), engine: gzip(engine) }, ocr: { ...ocr, gzip: packed },
-    viewerPdfWorker: gzip(pdfWorker),
-    pdfDecoders: Object.fromEntries(["jbig2.wasm", "openjpeg.wasm", "qcms_bg.wasm"]
-      .map((name) => [name, gzip(readFileSync(path.join(pdfjs, "wasm", name)))])),
-    fonts: Object.fromEntries(readdirSync(fonts).filter((name) => !name.startsWith("LICENSE"))
-      .map((name) => [name, gzip(readFileSync(path.join(fonts, name)))])),
+    ...pdfs ? {
+      viewerPdfWorker: gzip(pdfWorker),
+      pdfDecoders: Object.fromEntries(["jbig2.wasm", "openjpeg.wasm", "qcms_bg.wasm"]
+        .map((name) => [name, gzip(readFileSync(path.join(pdfjs, "wasm", name)))])),
+      fonts: Object.fromEntries(readdirSync(fonts).filter((name) => !name.startsWith("LICENSE"))
+        .map((name) => [name, gzip(readFileSync(path.join(fonts, name)))])),
+    } : { pdfDecoders: {}, fonts: {} },
   };
   for (const name of readdirSync(gzipDir)) if (!packedNow.has(name)) rmSync(path.join(gzipDir, name), { force: true });
   // The payload is data, never script: each large string goes in a data element after the page, which the

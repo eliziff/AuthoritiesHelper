@@ -1,20 +1,22 @@
 name: Release
 
-# Two packages, each a single self-contained HTML file:
+# Three packages, each a single self-contained HTML file:
 # - Authorities.html, the full Authorities app: Beaver's workspace, runtime and Rust engine
 #   built with this commit's browser adapter (modern/html). Tag authorities-v*.
 # - Authorities-lite.html, the lightweight app in modern/authorities-lite. Tag authorities-lite-v*.
-# Pushing a tag releases that package; a manual run releases the one chosen, or both.
+# - Authority Linker.html, a Word copy with its citations and pinpoints linked: Authorities' page and
+#   engine around one operation (modern/linker). Tag authority-linker-v*.
+# Pushing a tag releases that package; a manual run releases the one chosen, or all three.
 on:
   push:
-    tags: ['authorities-v*', 'authorities-lite-v*']
+    tags: ['authorities-v*', 'authorities-lite-v*', 'authority-linker-v*']
   workflow_dispatch:
     inputs:
       package:
         description: Package to release
         type: choice
-        options: [both, authorities, authorities-lite]
-        default: both
+        options: [all, authorities, authorities-lite, authority-linker]
+        default: all
       version:
         description: Version to release, e.g. v0.3.0
         required: true
@@ -25,7 +27,7 @@ permissions:
 jobs:
   authorities:
     if: >-
-      (github.event_name == 'workflow_dispatch' && inputs.package != 'authorities-lite') ||
+      (github.event_name == 'workflow_dispatch' && (inputs.package == 'all' || inputs.package == 'authorities')) ||
       (github.event_name == 'push' && startsWith(github.ref_name, 'authorities-v'))
     runs-on: ubuntu-latest
     timeout-minutes: 40
@@ -91,7 +93,7 @@ jobs:
 
   authorities-lite:
     if: >-
-      (github.event_name == 'workflow_dispatch' && inputs.package != 'authorities') ||
+      (github.event_name == 'workflow_dispatch' && (inputs.package == 'all' || inputs.package == 'authorities-lite')) ||
       (github.event_name == 'push' && startsWith(github.ref_name, 'authorities-lite-v'))
     runs-on: ubuntu-latest
     defaults:
@@ -141,3 +143,64 @@ jobs:
             --target "$GITHUB_SHA" \
             --title "Authorities-lite ${version}" --latest=false \
             --notes "Authorities-lite. Download Authorities-lite.html and open it in Chrome or Edge; nothing to install."
+
+  authority-linker:
+    if: >-
+      (github.event_name == 'workflow_dispatch' && (inputs.package == 'all' || inputs.package == 'authority-linker')) ||
+      (github.event_name == 'push' && startsWith(github.ref_name, 'authority-linker-v'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check out current Beaver sources and this release adapter
+        run: |
+          git clone --branch main --single-branch --depth 1 https://github.com/eliziff/Beaver.git beaver
+          cd beaver
+          python3 scripts/bootstrap-repositories.py legal-structure legal-pdf-parser common-law-cite legal-browser-ocr
+          git init AuthoritiesHelper
+          git -C AuthoritiesHelper remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
+          git -C AuthoritiesHelper fetch --depth=1 origin "$GITHUB_SHA"
+          git -C AuthoritiesHelper checkout --detach FETCH_HEAD
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install locked dependencies
+        working-directory: beaver
+        run: |
+          npm ci --ignore-scripts
+          npm ci --ignore-scripts --prefix AuthoritiesHelper/modern
+          npm run build:shared
+      - name: Add the engine's WebAssembly target
+        run: rustup target add wasm32-wasip1
+      - name: Install the WASI SDK for SQLite
+        env:
+          WASI_SDK_VERSION: '34.0'
+          WASI_SDK_SHA256: b761e3a0721dbae9c09a0059e5fdb2bf917d1b4a8a7b430fb3b5aafb0984b2c4
+        run: |
+          sdk_archive="wasi-sdk-${WASI_SDK_VERSION}-x86_64-linux.tar.gz"
+          sdk_archive_path="$RUNNER_TEMP/$sdk_archive"
+          curl --fail --location --retry 3 \
+            "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-34/$sdk_archive" \
+            --output "$sdk_archive_path"
+          echo "$WASI_SDK_SHA256  $sdk_archive_path" | sha256sum --check
+          tar -xzf "$sdk_archive_path" -C "$RUNNER_TEMP"
+          echo "WASI_SDK_PATH=$RUNNER_TEMP/wasi-sdk-${WASI_SDK_VERSION}-x86_64-linux" >> "$GITHUB_ENV"
+          rm "$sdk_archive_path"
+      - name: Build the browser engine explicitly
+        working-directory: beaver
+        run: |
+          cargo fetch --locked --manifest-path native/legal-structure-node/Cargo.toml
+          node AuthoritiesHelper/modern/html/build-engine.mjs --release
+      - name: Build Authority Linker.html
+        working-directory: beaver
+        run: node AuthoritiesHelper/modern/linker/build.mjs "$GITHUB_WORKSPACE/Authority Linker.html" --release
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          version="${INPUT_VERSION:-${GITHUB_REF_NAME#authority-linker-}}"
+          gh release create "authority-linker-${version}" "Authority Linker.html" \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "Authority Linker ${version}" --latest=false \
+            --notes "Authority Linker: add citation and pinpoint hyperlinks to a copy of a Word document. Download Authority Linker.html and open it in Chrome or Edge; nothing to install, and nothing leaves the browser."

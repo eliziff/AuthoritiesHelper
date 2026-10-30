@@ -1,0 +1,3 @@
+/* Authority Linker's page: Authorities' styles, and its own classes. */
+@import "@/app/authorities.css";
+@source "./";
