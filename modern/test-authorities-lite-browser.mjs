@@ -27,16 +27,16 @@ try {
   await page.getByRole('button',{name:'Review',exact:true}).click({timeout:90000});
   await expect(page.locator('#page-wrap .pdf-page canvas').first()).toBeVisible({timeout:30000});
   assert(await page.locator('#page-scroll').evaluate(e=>e.clientHeight)>500);
-  await page.getByLabel('PDF page',{exact:true}).fill(String(target));await page.getByLabel('PDF page',{exact:true}).press('Enter');
+  await page.getByLabel(/^PDF page, /).fill(String(target));await page.getByLabel(/^PDF page, /).press('Enter');
   await expect(page.locator(`#page-wrap .pdf-page[data-page="${target}"] canvas`)).toBeVisible({timeout:30000});
   await expect(page.locator(`#page-wrap .pdf-page[data-page="${target}"] .textLayer`)).toBeVisible();
   if(process.env.LITE_TEST_PRINTED){
-    await expect(page.getByLabel('Printed page',{exact:true})).toHaveValue(process.env.LITE_TEST_PRINTED);
-    await page.getByLabel('PDF page',{exact:true}).fill('1');
-    await page.getByLabel('PDF page',{exact:true}).press('Enter');
-    await page.getByLabel('Printed page',{exact:true}).fill(process.env.LITE_TEST_PRINTED);
-    await page.getByLabel('Printed page',{exact:true}).press('Enter');
-    await expect(page.getByLabel('PDF page',{exact:true})).toHaveValue(String(target));
+    await expect(page.getByLabel(/^Printed page, /)).toHaveValue(process.env.LITE_TEST_PRINTED);
+    await page.getByLabel(/^PDF page, /).fill('1');
+    await page.getByLabel(/^PDF page, /).press('Enter');
+    await page.getByLabel(/^Printed page, /).fill(process.env.LITE_TEST_PRINTED);
+    await page.getByLabel(/^Printed page, /).press('Enter');
+    await expect(page.getByLabel(/^PDF page, /)).toHaveValue(String(target));
   }
   const count=await page.locator('#highlight-list .highlight-row').count();
   await page.locator(`#page-wrap .pdf-page[data-page="${target}"] .textLayer span`).first().evaluate(span=>{
@@ -63,19 +63,20 @@ try {
   await page.locator('#close-viewer').click();await page.getByRole('button',{name:'Review',exact:true}).click();
   await expect(page.locator('#page-wrap .pdf-page canvas').first()).toBeVisible();
   if(process.env.LITE_TEST_PRINTED){
-    await page.getByLabel('Printed page',{exact:true}).fill(process.env.LITE_TEST_PRINTED);
-    await page.getByLabel('Printed page',{exact:true}).press('Enter');
-    await expect(page.getByLabel('PDF page',{exact:true})).toHaveValue(String(target));
+    await page.getByLabel(/^Printed page, /).fill(process.env.LITE_TEST_PRINTED);
+    await page.getByLabel(/^Printed page, /).press('Enter');
+    await expect(page.getByLabel(/^PDF page, /)).toHaveValue(String(target));
   }
   assert.deepEqual(errors,[]);
   await page.locator('#close-viewer').click();
+  // A PDF uploaded on a row is taken as given; one added to the list goes only to the authority it opens with.
   for(const citation of ['2021 SCC 1', '[2022] 3 SCR 999']) {
     await page.getByRole('textbox',{name:'List of citations'}).fill(citation);
     const chooseWrong=page.waitForEvent('filechooser');
-    await page.getByRole('button',{name:'Upload',exact:true}).click();
+    await page.getByText('Click or drag to add PDFs').click();
     await (await chooseWrong).setFiles(path.resolve(process.argv[3]));
-    await expect(page.getByRole('status')).toContainText(/Wrong PDF|opening citation could not be verified/);
-    await expect(page.getByRole('button',{name:'Review',exact:true})).toHaveCount(0);
+    await page.waitForFunction(()=>!/Identifying/.test(document.body.innerText));
+    assert(!(await page.evaluate(c=>AuthoritiesApp.records.find(r=>r.citation===c)?.document,citation)),`${citation} took a PDF that opens with another citation`);
   }
   console.log('PASS: Lite native viewer, navigation, highlights, undo/redo, annotated export, close/reopen, real PDF worker.');
 } catch(error) {

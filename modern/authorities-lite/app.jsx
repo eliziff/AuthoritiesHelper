@@ -1,6 +1,6 @@
 import {useRef,useState,useSyncExternalStore} from 'react';import {createRoot} from 'react-dom/client';import {flushSync} from 'react-dom';
 import {AlertTriangle,CheckCircle2,Circle,Download,ExternalLink,Eye,FilePlus2,FileText,FolderSearch,ArrowLeft,Globe,Highlighter,Loader2,Redo2,Settings,SquareDashed,TextSelect,Undo2,Search,Square,X} from 'lucide-react';
-import {createEngine,caller} from './engine.mjs';import {bytes} from './assets.mjs';
+import {createEngine,caller} from './engine.mjs';import {assetsReady,bytes} from '../browser-ocr/assets.mjs';
 import {parseInstructions,key,targetLabel,canliiFileCitation,captionStyleOfCause} from './domain.mjs';
 import {canliiPdf,resolveRecord,retrievePdf,download,makeZip,DEFAULT_SERVICE_URL} from './client.mjs';
 import {inspectPdf,inspectOpening,attachFindings,exportPdf} from './pdf.mjs';import {makeViewer} from './viewer.mjs';
@@ -288,7 +288,7 @@ viewer=makeViewer(document.getElementById('viewer'),emit,({page,count,labels})=>
 window.addEventListener('dragover',e=>e.preventDefault());window.addEventListener('drop',e=>e.preventDefault());
 document.getElementById('viewer-download').onclick=()=>activeRecord&&saveRecord(activeRecord).catch(e=>notice(e.message));
 createRoot(document.getElementById('root')).render(<App/>);
-try{engine=await createEngine(bytes('structure'));call=caller(engine);notice('');if(paste.trim())parse().catch(e=>notice(e.message));}catch(error){notice(`Runtime failed: ${error.message}`);}
+try{await assetsReady(['structure','caseAliases','pdfWorker']);engine=await createEngine(bytes('structure'));call=caller(engine);notice('');if(paste.trim())parse().catch(e=>notice(e.message));}catch(error){notice(`Runtime failed: ${error.message}`);}
 // A folder kept from an earlier visit is watched again, or asked for on the next click.
 keptFolder().then(async dir=>{if(!dir||watched)return;if(await dir.queryPermission?.({mode:'read'})==='granted')watch(dir,false);else{asked=dir;emit();}}).catch(()=>{});
 window.addEventListener('focus',()=>scanWatched());

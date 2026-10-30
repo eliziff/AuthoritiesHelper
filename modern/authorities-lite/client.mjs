@@ -1,7 +1,7 @@
 import { citationCall, extractCitations } from './engine.mjs';
 import { key } from './domain.mjs';
 import { acquirePdf, readBounded, LIMITS } from './network.mjs';
-import { textAsset } from './assets.mjs';
+import { textAsset } from '../browser-ocr/assets.mjs';
 import { hasPdfEndMarker } from '../../../shared/pdf-integrity.mjs';
 export { DEFAULT_SERVICE_URL } from '../provider-pdf-service.mjs';
 let aliases;

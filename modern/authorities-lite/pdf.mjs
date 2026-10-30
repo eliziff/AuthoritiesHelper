@@ -5,7 +5,7 @@ import { createSearchablePdf } from '../../../legal-browser-ocr/pdf-export.js';
 import { OCR_DPI } from '../../../legal-browser-ocr/ocr-tiers.js';
 import { cropToPdfTransform } from '../../../legal-browser-ocr/text-layer.js';
 import { recognizePage } from './ocr.mjs';
-import { assetURL } from './assets.mjs';
+import { assetURL } from '../browser-ocr/assets.mjs';
 import { findTargets, initialMarks } from './domain.mjs';
 import { caller, extractCitations } from './engine.mjs';
 import { rotatedMarginText, verifyIdentity } from '../../../shared/folder-pdf-match.mjs';
@@ -155,7 +155,7 @@ export async function inspectPdf(data, engine, progress=()=>{}, signal, expected
   }finally{await pdf.destroy();}
 }
 export function attachFindings(document,record,engine){
-  document.findings=findTargets(document,record.targets,engine);document.marks=initialMarks(document.findings);document.undo=[];document.redo=[];
+  document.findings=findTargets(document,record.targets);document.marks=initialMarks(document.findings);document.undo=[];document.redo=[];
   return document;
 }
 export async function exportPdf(document){

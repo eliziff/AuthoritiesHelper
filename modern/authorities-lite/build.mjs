@@ -8,10 +8,13 @@ const pinpointer=path.resolve(process.env.LEGAL_PINPOINTER_ROOT||path.join(beave
 const engine=path.join(folder,'vendor/legal-structure.wasm');
 if(!fs.existsSync(engine)||!fs.existsSync(path.join(folder,'vendor/legal-structure.js')))throw new Error('Browser engine missing. Run node html/build-engine.mjs --lite from modern first.');
 const read=p=>fs.readFileSync(path.join(root,p),'utf8');
-const ocr=await browserOcrAssets(),assets={...ocr,gzip:[]};
-for(const [name,value]of Object.entries(ocr)){const bytes=Buffer.from(value,'base64'),packed=gzipSync(bytes,{level:9});if(packed.length<bytes.length){assets[name]=packed.toString('base64');assets.gzip.push(name);}}
-for(const [name,p]of Object.entries({structure:'authorities-lite/vendor/legal-structure.wasm',pdfWorker:'vendor/runtime/dist/pdf.worker.min.mjs'}))assets[name]=fs.readFileSync(path.resolve(root,p)).toString('base64');
-assets.caseAliases=gunzipSync(fs.readFileSync(path.join(pinpointer,'canlii-case-aliases.tsv.gz'))).toString('base64');
+const ocr=await browserOcrAssets(),assets={gzip:[]};
+// Every asset goes in gzipped where that is smaller (browser-ocr/assets.mjs inflates the ones asked for).
+const raw={...Object.fromEntries(Object.entries(ocr).map(([name,value])=>[name,Buffer.from(value,'base64')])),
+  structure:fs.readFileSync(engine),pdfWorker:fs.readFileSync(path.join(root,'vendor/runtime/dist/pdf.worker.min.mjs')),
+  caseAliases:gunzipSync(fs.readFileSync(path.join(pinpointer,'canlii-case-aliases.tsv.gz')))};
+for(const [name,bytes]of Object.entries(raw)){const packed=gzipSync(bytes,{level:9});
+  if(packed.length<bytes.length){assets[name]=packed.toString('base64');assets.gzip.push(name);}else assets[name]=bytes.toString('base64');}
 // Tailwind compiles the Beaver-styled interface into one inline stylesheet.
 execFileSync(process.execPath,[path.join(root,'node_modules/@tailwindcss/cli/dist/index.mjs'),'-i',path.join(folder,'styles.css'),'-o',path.join(folder,'vendor/styles.css'),'--minify'],{stdio:'inherit'});
 const styles=read('authorities-lite/vendor/styles.css').replaceAll('</style','<\\/style');
@@ -24,7 +27,7 @@ fs.writeFileSync(path.join(out,'Authorities-lite.html'),html);
 const worker=await build({metafile:true,entryPoints:[path.join(folder,'worker.mjs')],bundle:true,format:'esm',platform:'browser',target:'es2022',outfile:path.join(out,'worker.mjs'),legalComments:'inline'});
 fs.copyFileSync(path.join(folder,'wrangler.jsonc'),path.join(out,'wrangler.jsonc'));
 const hash=bytes=>crypto.createHash('sha256').update(bytes).digest('hex');
-const sources={integration:'MIT',sources:Object.fromEntries([...new Set([...Object.keys(app.metafile.inputs),...Object.keys(worker.metafile.inputs)])].sort().map(file=>[path.relative(beaver,path.resolve(file)).replaceAll('\\','/'),hash(fs.readFileSync(file))])),assets:Object.fromEntries(Object.entries(assets).filter(([name])=>name!=='gzip').map(([name,bytes])=>[name,hash(Buffer.from(bytes,'base64'))]))};
+const sources={integration:'MIT',sources:Object.fromEntries([...new Set([...Object.keys(app.metafile.inputs),...Object.keys(worker.metafile.inputs)])].sort().map(file=>[path.relative(beaver,path.resolve(file)).replaceAll('\\','/'),hash(fs.readFileSync(file))])),assets:Object.fromEntries(Object.entries(raw).map(([name,bytes])=>[name,hash(bytes)]))};
 fs.writeFileSync(path.join(out,'SOURCES.json'),JSON.stringify(sources,null,2));
 fs.writeFileSync(path.join(out,'OCR-NOTICES.json'),Buffer.from(ocr.packageNotice,'base64'));
 for(const file of ['README.md','VALIDATION.md','THIRD_PARTY_NOTICES.md'])if(fs.existsSync(path.join(folder,file)))fs.copyFileSync(path.join(folder,file),path.join(out,file));

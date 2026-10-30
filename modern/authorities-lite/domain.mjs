@@ -39,7 +39,7 @@ export function parseInstructions(text, engine) {
   }
   return [...records.values()];
 }
-export function findTargets(document, targets, engine) {
+export function findTargets(document, targets) {
   const { nodes, text, lines } = document;
   return targets.map(target => {
     let selected = [];
@@ -53,10 +53,14 @@ export function findTargets(document, targets, engine) {
     if (matching.length !== 1) return { target, status: 'unlocated', message: matching.length ? 'Repeated paragraph address needs review.' : 'Paragraph address was not confidently located.' };
     let { start, end } = matching[0].range;
     if (target.item) {
-      const {range}=engine({op:'numbered_item',parent:{start,end},item:target.item,
-        lines:lines.filter(l=>l.start>=start&&l.start<end).map(l=>[l.start,l.text])});
-      if (!range) return { target, status: 'unlocated', message: `Paragraph found; item ${target.item} needs review.` };
-      ({start,end}=range);
+      // The structure's own numbered items of the paragraph's lists: a unique one runs to the next item, or the paragraph's end.
+      const within = new Set([matching[0].id]);
+      for (const n of nodes) if (within.has(n.parent_id)) within.add(n.id);
+      const items = nodes.filter(n => n.kind === 'list_item' && within.has(n.id)).sort((a, b) => a.range.start - b.range.start);
+      const hits = items.filter(n => n.label?.replace(/^\(|[.)]$/g, '') === target.item);
+      if (hits.length !== 1) return { target, status: 'unlocated', message: `Paragraph found; item ${target.item} needs review.` };
+      start = hits[0].range.start;
+      end = items.find(n => n.range.start > start)?.range.start ?? end;
     }
     selected = lines.filter(l => l.end > start && l.start < end && l.text.trim() && !l.excluded);
     if (!selected.length) return { target, status: 'unlocated', message: 'The paragraph has no reliable page geometry.' };
