@@ -1,7 +1,6 @@
-// Authority Linker from file://, in both link modes: a body citation with a paragraph range and a statute's sections,
-// and footnotes with a quotation and an ibid. Checks the copy keeps its text, emphasis and existing link, links each
-// written pinpoint on its own (41 and 43 of 41–43), puts a quotation's fragment on the lead pinpoint only, fits a phone
-// screen and makes no network request.
+// Authority Linker from file://: a body citation with a paragraph range and a statute's sections, and footnotes with an
+// ibid. Checks the copy keeps its text, emphasis and existing link, links body citations only when asked, each citation at
+// its first paragraph or section pinpoint and no quotation, fits a phone screen and makes no network request.
 //   node test-authority-linker-browser.mjs "out/Authority Linker.html" [out-dir]
 import assert from "node:assert/strict";
 import path from "node:path";
@@ -45,43 +44,43 @@ const page = await (await browser.newContext({ acceptDownloads: true, viewport: 
 const errors = [], requests = [];
 page.on("pageerror", (error) => errors.push(error.message));
 page.on("request", (request) => { if (/^https?:/u.test(request.url())) requests.push(request.url()); });
-const link = async (file, mode) => {
+const link = async (file, where = "Footnotes") => {
   if (await page.getByRole("button", { name: "Remove file" }).count()) await page.getByRole("button", { name: "Remove file" }).click();
   await page.getByLabel("Word document").setInputFiles(file);
-  await page.getByLabel(mode).check();
+  await page.getByLabel(where, { exact: true }).check();
   await page.getByRole("button", { name: "Add hyperlinks", exact: true }).click();
   const anchor = page.getByRole("link", { name: "Download linked copy" });
   await anchor.waitFor({ timeout: 120000 });
   const [download] = await Promise.all([page.waitForEvent("download"), anchor.click()]);
-  const saved = path.join(out, `${path.basename(file, ".docx")}-${mode === "Pinpoint only" ? "pinpoint" : "fragment"}.docx`);
+  const saved = path.join(out, `${path.basename(file, ".docx")}-linked.docx`);
   await download.saveAs(saved);
-  return { parts: await unzip(readFileSync(saved)), status: await page.getByRole("heading", { name: "Linked copy" }).locator("..").innerText() };
+  return unzip(readFileSync(saved));
 };
 try {
   await page.goto(pathToFileURL(path.resolve(html)).href);
   await page.getByRole("heading", { name: "Authority Linker" }).waitFor();
   await page.screenshot({ path: path.join(out, "page.png") });
-  for (const mode of ["Pinpoint only", "Pinpoint + quoted text"]) {
-    const { parts, status } = await link(bodyFile, mode);
-    const body = parts["word/document.xml"], links = parts["word/_rels/document.xml.rels"];
-    assert.equal([...body.matchAll(/<w:t(?:\s[^>]*)?>(.*?)<\/w:t>/gs)].map((match) => match[1]).join(""), expectedBody);
-    assert.match(body, /<w:i(?:\s[^>]*)?(?:\s*\/|><\/w:i)>/u);
-    assert.match(links, /https:\/\/example\.org\/original/u);
-    for (const anchor of ["#par41", "#par43", "#sec8subsec2", "#sec9"]) assert.ok(links.includes(anchor), `Missing ${anchor}: ${links}`);
-    assert.match(body, /<w:t[^>]*>41<\/w:t>/u); assert.match(body, /<w:t[^>]*>43<\/w:t>/u);
-    if (mode === "Pinpoint only") assert.ok(!links.includes(":~:text="));
-    else { assert.ok(links.includes("#par41:~:text=A%20useful%20quoted%20sentence")); assert.ok(!links.includes("#par43:~:")); }
-    console.log(`${mode}: ${status.replace(/\s+/g, " ")}`);
-  }
+  const footnotesOnly = await link(bodyFile, "Footnotes");
+  assert.ok(!footnotesOnly["word/_rels/document.xml.rels"].includes("canlii"), "Footnotes leaves the body's citations alone");
+  const parts = await link(bodyFile, "Footnotes and body");
+  const body = parts["word/document.xml"], links = parts["word/_rels/document.xml.rels"];
+  console.log("body links:", [...links.matchAll(/Target="([^"]+)"/g)].map((m) => m[1]).join("  "));
+  assert.equal([...body.matchAll(/<w:t(?:\s[^>]*)?>(.*?)<\/w:t>/gs)].map((match) => match[1]).join(""), expectedBody);
+  assert.match(body, /<w:i(?:\s[^>]*)?(?:\s*\/|><\/w:i)>/u);
+  assert.match(links, /https:\/\/example\.org\/original/u);
+  assert.ok(links.includes("https://www.canlii.org/en/ca/scc/doc/2018/2018scc31/2018scc31.html\""), "the decision's page");
+  assert.ok(links.includes("2018scc31.html#par41"), "its first pinpoint");
+  assert.ok(/rsc-1985-c-c-46\/latest\/rsc-1985-c-c-46\.html#sec8"/u.test(links), "the statute's first section");
+  assert.ok(!links.includes(":~:text="));
   await page.screenshot({ path: path.join(out, "linked.png") });
-  const { parts } = await link(notesFile, "Pinpoint + quoted text");
-  const noteLinks = parts["word/_rels/footnotes.xml.rels"];
-  assert.ok(noteLinks.includes("#par41:~:text=An%20invented%20quoted%20passage"));
-  assert.ok(noteLinks.includes("#par43") && noteLinks.includes("#par46"));
-  assert.ok(!noteLinks.includes("#par43:~:") && !noteLinks.includes("#par46:~:"));
+  const notes = await link(notesFile);
+  const noteLinks = notes["word/_rels/footnotes.xml.rels"];
+  console.log("note links:", [...noteLinks.matchAll(/Target="([^"]+)"/g)].map((m) => m[1]).join("  "));
+  for (const anchor of ["#par41", "#par46"]) assert.ok(noteLinks.includes(anchor), `Missing ${anchor}: ${noteLinks}`);
+  assert.ok(!noteLinks.includes(":~:text="));
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({ path: path.join(out, "phone.png"), fullPage: true });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   assert.deepEqual(requests, []); assert.deepEqual(errors, []);
-  console.log("PASS: both modes, each pinpoint of a range, sections, a quotation's fragment on its lead pinpoint, footnotes and ibid, the copy's text, emphasis and links, a phone screen and no network request.");
+  console.log("PASS: footnotes or footnotes and body, first pinpoints, a statute section, footnotes and ibid, no quotation fragments, the copy's text, emphasis and links, a phone screen and no network request.");
 } finally { await browser.close(); }
