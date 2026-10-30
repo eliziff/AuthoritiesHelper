@@ -2,7 +2,8 @@
 
 Open [Authorities](https://eliziff.github.io/AuthoritiesHelper/authorities/) or
 [Authorities-lite](https://eliziff.github.io/AuthoritiesHelper/authorities-lite/)
-in Chrome or Edge. GitHub Pages serves the latest stable release of each app;
+in Chrome or Edge, or download [Authority Linker](https://github.com/eliziff/AuthoritiesHelper/releases?q=authority-linker).
+GitHub Pages serves the latest stable release of Authorities and Authorities-lite;
 the [downloadable HTML releases](https://github.com/eliziff/AuthoritiesHelper/releases)
 remain available for local use. The site updates after successful release workflows.
 
