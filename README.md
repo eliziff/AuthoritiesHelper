@@ -10,12 +10,21 @@ AuthoritiesHelper turns citations in a Word document or PDF into a reviewable
 Table or Book of Authorities. Its local browser workspace lets you correct
 citations, resolve sources and review pinpoints before generating documents.
 
+Authority Linker, from the [releases](https://github.com/eliziff/AuthoritiesHelper/releases)
+(`Authority Linker.html`), links the citations in a Word document. It returns a copy
+in which each citation links to its source, CanLII first. Each pinpoint number
+links to its place in the source, so in "paras 30–32", 30 links to paragraph 30
+and 32 to paragraph 32. Options link citations in the footnotes only or in the
+body too, and link each whole pinpoint to its first number instead. Nothing
+leaves the browser.
+
 See [the standalone guide](modern/README.md). From a Beaver checkout with this
 repository at `AuthoritiesHelper/`:
 
 ```powershell
 npm run dev:authorities
 npm run package:authorities
+node AuthoritiesHelper/modern/linker/build.mjs "Authority Linker.html" --release
 ```
 
 The Python application, its web host and its copied grammar have been retired.
