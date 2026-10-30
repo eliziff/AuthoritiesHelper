@@ -14,11 +14,13 @@ const CARD = "max-w-xl rounded-xl border border-gray-300 bg-white p-4 shadow-sm 
 type Linked = { url: string; filename: string; added: number };
 const WHERE = [{ value: "footnotes", label: "Footnotes" }, { value: "body", label: "Footnotes and body" }] as const;
 const PINPOINTS = [{ value: "numbers", label: "Numbers" }, { value: "whole", label: "Whole pinpoint" }] as const;
+const CASES = [{ value: "any", label: "Any citation" }, { value: "neutral", label: "Neutral citations only" }] as const;
 
 function AuthorityLinker() {
   const [file, setFile] = useState<File | null>(null);
   const [where, setWhere] = useState<"footnotes" | "body">("footnotes");
   const [pinpoints, setPinpoints] = useState<"numbers" | "whole">("numbers");
+  const [cases, setCases] = useState<"any" | "neutral">("any");
   const [progress, setProgress] = useState("");
   const [error, setError] = useState("");
   const [linked, setLinked] = useState<Linked | null>(null);
@@ -32,7 +34,7 @@ function AuthorityLinker() {
     if (!file) return;
     request.current = new AbortController(); setError(""); setProgress("Reading the Word document…");
     try {
-      const result = await authoritiesOperation("word-hyperlinks" as never, { files: [file], body: where === "body", wholePinpoint: pinpoints === "whole" },
+      const result = await authoritiesOperation("word-hyperlinks" as never, { files: [file], body: where === "body", wholePinpoint: pinpoints === "whole", neutralOnly: cases === "neutral" },
         { signal: request.current.signal, progress: setProgress });
       const output = result.files![0];
       setLinked({ url: URL.createObjectURL(new Blob([output.bytes as Uint8Array<ArrayBuffer>], { type: output.mimeType })),
@@ -58,6 +60,8 @@ function AuthorityLinker() {
           onChange={(value) => { choose(file ?? undefined); setWhere(value); }} />
         <OptionCards className="mt-4" legend="Pinpoint links on" value={pinpoints} options={PINPOINTS} disabled={busy} columns
           onChange={(value) => { choose(file ?? undefined); setPinpoints(value); }} />
+        <OptionCards className="mt-4" legend="Case links from" value={cases} options={CASES} disabled={busy} columns
+          onChange={(value) => { choose(file ?? undefined); setCases(value); }} />
         <div className="mt-5 flex flex-wrap items-center gap-2">
           <Button type="button" disabled={!file || busy} onClick={link}>{busy ? <Loader2 className="motion-safe:animate-spin" /> : <Link2 />}Add hyperlinks</Button>
           {busy && <Button type="button" variant="outline" className="border-gray-400" onClick={() => request.current?.abort()}>Cancel</Button>}

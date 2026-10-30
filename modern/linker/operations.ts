@@ -10,10 +10,12 @@ const DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.doc
 
 // Authority Linker's runtime hosts one operation: a Word copy with its citations linked. Each citation's words open its
 // page, and its pinpoints the places the engine's pinpointLinks gives: by default each number its own ("30–32": 30 and
-// 32), or with `wholePinpoint` the pinpoint's words its first.
+// 32), or with `wholePinpoint` the pinpoint's words its first. A case opens the CanLII page its citation names, through the
+// alias table for a report's citation ("[1986] 1 SCR 103"), or with `neutralOnly` only a neutral or CanLII citation's.
 export function createAuthoritiesOperations() {
   return { "word-hyperlinks": async (input: { files?: Array<{ filename: string; bytes: Uint8Array; modified: number }>;
-    body?: boolean; wholePinpoint?: boolean }, context?: { signal?: AbortSignal; progress?: (text: string) => void }) => {
+    body?: boolean; wholePinpoint?: boolean; neutralOnly?: boolean },
+  context?: { signal?: AbortSignal; progress?: (text: string) => void }) => {
     const file = input.files?.[0];
     if (!file || input.files?.length !== 1 || !/\.docx$/iu.test(file.filename) || file.bytes.length > 100 * 1024 * 1024)
       throw new Error("Choose one Word .docx file, up to 100 MB.");
@@ -30,7 +32,8 @@ export function createAuthoritiesOperations() {
       if (!input.body && unit.kind !== "footnote") continue;
       const authority = occurrence.authorityId ? draft.authorities[occurrence.authorityId] : null;
       const page = sourceUrl(occurrence.link || (authority && ((authority.kind === "legislation"
-        ? native.canliiLawUrl(authority.citation) : native.canliiCaseUrl([authority.citation], "en", null))
+        ? native.canliiLawUrl(authority.citation) : input.neutralOnly ? native.canliiCaseUrl([authority.citation], "en", null)
+          : native.citationEngineCall("canliiAliasTarget", JSON.stringify({ target: authority.citation })) as string | null)
         ?? authoritySourceUrl(authority))) || "");
       if (!page) continue;
       // The pinpoints as the import read them, at the words the unit writes for each.
