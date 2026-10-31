@@ -172,25 +172,11 @@ jobs:
           npm run build:shared
       - name: Add the engine's WebAssembly target
         run: rustup target add wasm32-wasip1
-      - name: Install the WASI SDK for SQLite
-        env:
-          WASI_SDK_VERSION: '34.0'
-          WASI_SDK_SHA256: b761e3a0721dbae9c09a0059e5fdb2bf917d1b4a8a7b430fb3b5aafb0984b2c4
-        run: |
-          sdk_archive="wasi-sdk-${WASI_SDK_VERSION}-x86_64-linux.tar.gz"
-          sdk_archive_path="$RUNNER_TEMP/$sdk_archive"
-          curl --fail --location --retry 3 \
-            "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-34/$sdk_archive" \
-            --output "$sdk_archive_path"
-          echo "$WASI_SDK_SHA256  $sdk_archive_path" | sha256sum --check
-          tar -xzf "$sdk_archive_path" -C "$RUNNER_TEMP"
-          echo "WASI_SDK_PATH=$RUNNER_TEMP/wasi-sdk-${WASI_SDK_VERSION}-x86_64-linux" >> "$GITHUB_ENV"
-          rm "$sdk_archive_path"
-      - name: Build the browser engine explicitly
+      - name: Build the Word-only browser engine explicitly
         working-directory: beaver
         run: |
           cargo fetch --locked --manifest-path native/legal-structure-node/Cargo.toml
-          node AuthoritiesHelper/modern/html/build-engine.mjs --release
+          node AuthoritiesHelper/modern/html/build-engine.mjs --word --release
       - name: Build Authority Linker.html
         working-directory: beaver
         run: node AuthoritiesHelper/modern/linker/build.mjs "$GITHUB_WORKSPACE/Authority Linker.html" --release

@@ -6,9 +6,11 @@ import { mkdirSync, renameSync } from "node:fs";
 import path from "node:path";
 
 const flags = process.argv.slice(2);
-// Unoptimized by default, for the dev loop; --release for a page that ships.
-const lite = flags.includes("--lite"), release = flags.includes("--release");
-if (flags.some(flag => flag !== "--lite" && flag !== "--release")) throw new Error("Use build-engine.mjs [--lite] [--release]; Cargo overrides are not accepted");
+// Unoptimized by default, for the dev loop; --release for a page that ships. --word: the engine of a page that reads no
+// PDFs (Authority Linker), Word documents without the PDF parser, beside the full one as legal_structure_node-word.wasm.
+const lite = flags.includes("--lite"), release = flags.includes("--release"), word = flags.includes("--word");
+if (flags.some(flag => !["--lite", "--release", "--word"].includes(flag)) || lite && word)
+  throw new Error("Use build-engine.mjs [--lite | --word] [--release]; Cargo overrides are not accepted");
 const profile = release ? "release" : "debug";
 // The Beaver checkout being built: the one a build names (BEAVER_CHECKOUT; a worktree reaches this folder by a link),
 // else the one holding this folder.
@@ -17,14 +19,15 @@ const manifest = path.join(repo, lite ? "AuthoritiesHelper/modern/authorities-li
 const target = lite ? "wasm32-unknown-unknown" : "wasm32-wasip1";
 // Built in the environment every build of the workspace shares (scripts/cargo.mjs), into its one target folder.
 const env = cargoEnv(repo), targetDir = env.CARGO_TARGET_DIR;
-// The engine reads the local A2AJ store with SQLite, whose C compiles with wasi-sdk's clang.
-if (!lite) {
+// The engine reads the local A2AJ store with SQLite, whose C compiles with wasi-sdk's clang; the Word-only one has neither.
+if (!lite && !word) {
   const sdk = process.env.WASI_SDK_PATH;
   if (!sdk) throw new Error("Set WASI_SDK_PATH to a wasi-sdk (github.com/WebAssembly/wasi-sdk/releases): the engine compiles SQLite with it");
   Object.assign(env, { CC_wasm32_wasip1: path.join(sdk, "bin/clang"), AR_wasm32_wasip1: path.join(sdk, "bin/llvm-ar"),
     CFLAGS_wasm32_wasip1: `--sysroot=${path.join(sdk, "share/wasi-sysroot")}` });
 }
-const child = spawn("cargo", ["build", "--locked", "--offline", ...release ? ["--release"] : [],
+const child = spawn("cargo", ["build", "--locked", "--offline", ...release ? ["--release"] : [], "--lib",
+  ...word ? ["--no-default-features", "--features", "docx"] : [],
   "--target", target, "--manifest-path", manifest], { cwd: repo, env, stdio: "inherit" });
 // The build yields to interactive work.
 child.once("spawn", () => setPriority(child.pid, constants.priority.PRIORITY_BELOW_NORMAL));
@@ -43,4 +46,9 @@ if (lite) {
   execFileSync("wasm-bindgen", ["--target", "web", "--no-typescript", "--out-name", "legal-structure",
     "--out-dir", output, path.join(targetDir, target, `${profile}/authorities_browser_engine.wasm`)], { stdio: "inherit" });
   renameSync(path.join(output, "legal-structure_bg.wasm"), path.join(output, "legal-structure.wasm"));
+}
+// Moved, so the full engine's name never holds the Word-only one.
+if (word) {
+  const built = path.join(targetDir, target, profile, "legal_structure_node.wasm");
+  renameSync(built, built.replace(/\.wasm$/u, "-word.wasm"));
 }

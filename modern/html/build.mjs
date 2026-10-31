@@ -153,13 +153,14 @@ export function withoutGrammarNotes(engine) {
 export async function buildAuthoritiesHtml(output, { release = false, app, asset } = {}) {
   const native = !!app?.nativeRuntime, pdfs = app?.pdfs !== false;
   // A dev page takes the engine built last, fast to compile; a release page only the optimized one,
-  // and never one older than the engine's latest changes.
-  const built = (profile) => path.join(engineCrate, `target/wasm32-wasip1/${profile}/legal_structure_node.wasm`);
+  // and never one older than the engine's latest changes. A page that reads no PDFs takes the Word-only engine.
+  const flavour = pdfs ? "" : "-word", engineFlags = `${pdfs ? "" : " --word"}${release ? " --release" : ""}`;
+  const built = (profile) => path.join(engineCrate, `target/wasm32-wasip1/${profile}/legal_structure_node${flavour}.wasm`);
   const stamp = (file) => statSync(file, { throwIfNoEntry: false })?.mtimeMs ?? 0;
   const artifact = release || stamp(built("release")) >= stamp(built("debug")) ? built("release") : built("debug");
-  if (!native && !existsSync(artifact)) throw new Error(`Browser engine missing. Run node AuthoritiesHelper/modern/html/build-engine.mjs${release ? " --release" : ""} first.`);
+  if (!native && !existsSync(artifact)) throw new Error(`Browser engine missing. Run node AuthoritiesHelper/modern/html/build-engine.mjs${engineFlags} first.`);
   if (!native && release && stamp(built("debug")) > stamp(artifact))
-    throw new Error("The optimized engine is older than the engine's latest build. Run node AuthoritiesHelper/modern/html/build-engine.mjs --release first.");
+    throw new Error(`The optimized engine is older than the engine's latest build. Run node AuthoritiesHelper/modern/html/build-engine.mjs${engineFlags} first.`);
   const engine = native ? null : withoutGrammarNotes(readFileSync(artifact));
   // The build's own code: a change to how it builds reruns its steps.
   const builder = [import.meta.filename, path.join(here, "runtime-bundle.mjs"),

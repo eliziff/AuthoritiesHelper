@@ -1,6 +1,6 @@
 // Builds "Authority Linker.html": Authorities.html's build (html/build.mjs) with this folder's page as its entry and its
 // one operation (operations.ts) as the runtime's, offline. Run from the combined checkout after the browser engine
-// (html/build-engine.mjs):
+// (html/build-engine.mjs --word: the page reads no PDFs, so its engine is the Word-only one):
 //   node AuthoritiesHelper/modern/linker/build.mjs [output.html] [--release]
 import path from "node:path";
 import { buildAuthoritiesHtml } from "../html/build.mjs";
