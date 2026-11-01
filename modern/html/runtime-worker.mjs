@@ -60,11 +60,27 @@ async function loadEngine(asset) {
   fs.mkdirSync("/engine", { recursive: true });
   fs.writeFileSync(ENGINE_PATH, "");
 }
+
+// A page whose operations bring their own warm-up (Authority Linker's: a small document through its one operation)
+// compiles the engine and builds what its first document would while it waits for one, so that document costs what
+// any other does. The first operation to arrive stops it; a warm-up that fails leaves the first document to build
+// everything, as before. A page without one compiles the engine at its first operation.
+const warming = new AbortController();
+async function warmEngine() {
+  if (!operations["warm-up"]) return;
+  try {
+    await (engineReady ??= loadEngine(engineAsset));
+    await operations["warm-up"](undefined, { signal: warming.signal });
+  } catch (error) {
+    if (!warming.signal.aborted) console.warn("The engine could not be warmed", error);
+  }
+}
 let operations;
 const active = new Map();
 async function handle({ id, operation, input }) {
   const controller = new AbortController();
   active.set(id, controller);
+  warming.abort();
   try {
     if (!["mount-store", "alr-model", "alr-source-keys"].includes(operation)) await (engineReady ??= loadEngine(engineAsset));
     controller.signal.throwIfAborted();
@@ -113,6 +129,7 @@ self.onmessage = async ({ data }) => {
       return;
     }
     self.postMessage({ type: "ready" });
+    if (data.warm) void warmEngine();
   } else if (data.type === "operation") {
     void handle(data);
   } else if (data.type === "abort") {

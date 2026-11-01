@@ -29,6 +29,8 @@ function AuthorityLinker() {
   const choose = (next?: File) => {
     if (linked) URL.revokeObjectURL(linked.url);
     setLinked(null); setError(""); setFile(next ?? null);
+    // The document is read while its options are chosen; "Add hyperlinks" then writes its links.
+    if (next && next !== file) authoritiesOperation("word-read" as never, { files: [next] }).catch(() => undefined);
   };
   const link = async () => {
     if (!file) return;
@@ -43,13 +45,24 @@ function AuthorityLinker() {
       if (!request.current.signal.aborted) setError(failure instanceof Error ? failure.message : "The document could not be linked.");
     } finally { request.current = null; setProgress(""); }
   };
-  return <div className="authorities-workspace relative h-dvh overflow-y-auto bg-app-background [scrollbar-gutter:stable]">
+  // A Word document dropped anywhere on the page is the one to link; a file dropped elsewhere is not opened in place of
+  // the page.
+  const files = (event: React.DragEvent) => event.dataTransfer.types.includes("Files");
+  const drop = (event: React.DragEvent) => {
+    if (!files(event)) return;
+    event.preventDefault();
+    if (busy) return;
+    const dropped = Array.from(event.dataTransfer.files).find((candidate) => /\.docx$/iu.test(candidate.name));
+    if (dropped) choose(dropped); else setError("Choose one Word .docx file, up to 100 MB.");
+  };
+  return <div className="authorities-workspace relative h-dvh overflow-y-auto bg-app-background [scrollbar-gutter:stable]"
+    onDragOver={(event) => { if (files(event)) event.preventDefault(); }} onDrop={drop}>
     <WorkspaceHeader className={FRAME} title="Authority Linker" />
     <main className={`${FRAME} space-y-4 pb-8 pt-4`}>
       <section className={CARD} aria-labelledby="linker-start">
         <div className="flex items-center gap-3"><Link2 className="h-6 w-6 shrink-0 text-accent-700" aria-hidden="true" />
           <div className="min-w-0"><h2 id="linker-start" className="font-semibold text-gray-950">Link citations</h2>
-            <p className="text-sm text-gray-600">Add a Word document.</p></div></div>
+            <p className="text-sm text-gray-600">Add a Word document, or drop one on the page.</p></div></div>
         {file ? <div className="mt-5 flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-2">
           <FileText className="h-4 w-4 shrink-0 text-gray-500" aria-hidden="true" />
           <span className="min-w-0 flex-1 truncate text-sm font-medium text-gray-950">{file.name}</span>

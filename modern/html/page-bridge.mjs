@@ -159,7 +159,9 @@ const ready = (native ? Promise.resolve(null) : runtimeCode ??= parsed.then(() =
     else if (data.type === "result") request.resolve(data.result);
     else if (data.type === "error") request.fail(Object.assign(new Error(data.message), { status: data.status }));
   };
-  worker.postMessage(native ? { type: "init" } : { type: "init", engine: typeof payload.engine === "string" ? payload.engine
+  // The program's runtime may warm its engine before its first document (runtime-worker.mjs); the previews' never reads one.
+  worker.postMessage(native ? { type: "init" } : { type: "init", warm: name === "authorities-runtime",
+    engine: typeof payload.engine === "string" ? payload.engine
     : { url: new URL(payload.engine.url, location.href).href }, providerServiceUrl: globalThis.ALR_PROVIDER_SERVICE_URL
     ? new URL(globalThis.ALR_PROVIDER_SERVICE_URL, location.href).href : undefined,
     pdfServiceUrl: globalThis.ALR_PDF_SERVICE_URL ? new URL(globalThis.ALR_PDF_SERVICE_URL, location.href).href : undefined });
@@ -173,8 +175,8 @@ let runtime;
 let previews;
 const runtimeFor = (operation) => operation === "book-front" && !native ? previews ??= startRuntime("authorities-previews")
   : runtime ??= startRuntime("authorities-runtime");
-// The program loads its runtime once the page has drawn, so the first request finds it ready.
-if (native) (globalThis.requestIdleCallback ?? setTimeout)(() => { runtime ??= startRuntime("authorities-runtime"); }, { timeout: 2000 });
+// The runtime loads once the page has drawn, so the first request finds it ready.
+(globalThis.requestIdleCallback ?? setTimeout)(() => { runtime ??= startRuntime("authorities-runtime"); }, { timeout: 2000 });
 
 globalThis.AUTHORITIES_OPERATIONS = async (operation, input, { signal, progress, quoteProgress } = {}) => {
   signal?.throwIfAborted();
