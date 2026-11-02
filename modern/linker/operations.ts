@@ -90,7 +90,7 @@ export function createAuthoritiesOperations() {
           end: pinpoints[pinpoint].span.start + end, text }, url }));
       const link = input.wholePinpoint && numbers[0]?.url || page;
       const parts = { core: occurrence.coreSpan.text ? occurrence.coreSpan : null, pinpoint: occurrence.pinpointSpan,
-        written: writtenAddress(occurrence.text, occurrence.start, link) };
+        written: writtenAddress(occurrence.text, occurrence.start, link), reference: occurrence.referenceKind };
       for (const { span, url } of input.wholePinpoint ? partLinks(parts, link)
         : [...partLinks({ ...parts, pinpoint: null }, page), ...numbers]) {
         if (!writes.some((write) => write.unitId === occurrence.unitId && write.start < span.end && span.start < write.end))
