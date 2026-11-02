@@ -1,11 +1,12 @@
 import { useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { Download, FileText, Link2, Loader2, X } from "lucide-react";
+import { Download, FileText, Info, Link2, Loader2, X } from "lucide-react";
 import "./linker.css";
 import { authoritiesOperation } from "@/app/authorities/runtimeClient";
 import { FileInputButton } from "@/app/authorities/FileInputButton";
 import { OptionCards } from "@/app/authorities/OptionCards";
 import { WorkspaceHeader } from "@/app/components/shared/WorkspaceHeader";
+import { HelpPopover } from "@/app/components/ui/help-popover";
 import { Button, buttonClassName } from "@/app/components/ui/button";
 
 // Authority Linker: Authorities' page around one operation, a Word copy with its citations linked.
@@ -61,7 +62,13 @@ function AuthorityLinker() {
     <main className={`${FRAME} space-y-4 pb-8 pt-4`}>
       <section className={CARD} aria-labelledby="linker-start">
         <div className="flex items-center gap-3"><Link2 className="h-6 w-6 shrink-0 text-accent-700" aria-hidden="true" />
-          <div className="min-w-0"><h2 id="linker-start" className="font-semibold text-gray-950">Link citations</h2>
+          <div className="min-w-0"><h2 id="linker-start" className="flex items-center gap-1 font-semibold text-gray-950">Link citations
+            <HelpPopover label="About the links" icon={Info}>
+              <span className="block">Check Quebec and New Brunswick cases carefully: their links may open in the wrong
+                language. Quebec cases are assumed to be in French, and New Brunswick cases in English, though many are not.</span>
+              <span className="mt-2 block">A very small share of cases cited by a report rather than a neutral citation
+                (under 0.001%) may link to the wrong decision.</span>
+            </HelpPopover></h2>
             <p className="text-sm text-gray-600">Add a Word document, or drop one on the page.</p></div></div>
         {file ? <div className="mt-5 flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-2">
           <FileText className="h-4 w-4 shrink-0 text-gray-500" aria-hidden="true" />
